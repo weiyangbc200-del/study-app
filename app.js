@@ -1,16 +1,11 @@
 /***********************
- *  戰力診斷系統 Web版
- *  - GitHub Pages 可直接跑
- *  - 資料存 localStorage
+ *  戰力診斷系統 Web版（改良完整版）
  *
- *  ✅ 目標系統：
- *   - 長期目標（含截止日）：行政學/政治學...
- *   - 每日目標（每日刷新）：刷題/背單字...
- *   - 全部可在 Settings 自訂新增/編輯/刪除
- *
- *  ✅ 主色調 Theme：
- *   - 使用者可自選 accent 色（套用到 CSS 變數 --cyan）
- *   - 可嘗試「從背景抓平均色」做自動配色（可能遇到跨域限制）
+ * ✅ 目標可自訂：長期 / 每日
+ * ✅ 評估報告納入每日+長期目標狀態
+ * ✅ Theme：改 --accent / --accent2 並推導其餘 accent 變數，按鈕/圈圈/選中框都會跟著變
+ * ✅ 背景：支援使用者上傳（自動壓縮 → localStorage DataURL）
+ * ✅ 長期目標不再顯示「（長期D-31）」那種長字：改成右側小 badge
  ************************/
 
 /** ========= Storage Keys ========= */
@@ -28,7 +23,9 @@ const K = {
   lastReset: "lastResetDate",
   dailyLogs: "dailyLogs",
   apiKey: "apiKey",
+
   bgURL: "bgURL",
+  bgMode: "bgMode", // "url" | "upload"
   reportMsg: "reportMsg",
   analysisTime: "analysisTime",
   focusMsg: "focusMsg",
@@ -37,7 +34,7 @@ const K = {
   longGoals: "longGoals",
   dailyGoals: "dailyGoals",
   dailyGoalProgress: "dailyGoalProgress", // {YYYYMMDD: {goalId: number}}
-  examDate: "examDate", // used for D- counter (user-settable)
+  examDate: "examDate",
 
   // theme
   theme: "theme", // {accent:"#00e5ff", mode:"manual"|"auto"}
@@ -62,9 +59,12 @@ const DEFAULTS = {
   events: [],
   pomodoroDone: 0,
   pomodoroFailed: 0,
-  dailyLogs: {}, // {YYYYMMDD: {score, summary, characterAnalysis, goalSnapshot?}}
+  dailyLogs: {},
   apiKey: "",
+
   bgURL: "https://images.unsplash.com/photo-1542051841857-5f90071e7989?q=80&w=2070",
+  bgMode: "url",
+
   reportMsg: "戰略報告準備中...",
   analysisTime: "",
   focusMsg: "全職考生，你沒有退路。",
@@ -80,7 +80,7 @@ const state = {
   reflection: "",
   activeTaskFromSchedule: "",
 
-  // timer
+  // timer UI mirror
   isFocusing: false,
   totalTime: 1500,
   timeLeft: 1500,
@@ -89,7 +89,6 @@ const state = {
   focusTaskName: "",
   isReportLoading: false,
 
-  // persistent focus session
   focusSession: null,
 };
 
@@ -114,13 +113,11 @@ function loadNum(key, fallback=0){
 }
 
 const data = {
-  // NEW goal system
   longGoals: loadJSON(K.longGoals, null),
   dailyGoals: loadJSON(K.dailyGoals, null),
   dailyGoalProgress: loadJSON(K.dailyGoalProgress, DEFAULTS.dailyGoalProgress),
   examDate: loadStr(K.examDate, DEFAULTS.examDate),
 
-  // rest
   wakeTime: loadStr(K.wake, DEFAULTS.wakeTime),
   sleepTime: loadStr(K.sleep, DEFAULTS.sleepTime),
   events: loadJSON(K.events, DEFAULTS.events),
@@ -128,14 +125,17 @@ const data = {
   pomodoroFailed: loadNum(K.failed, DEFAULTS.pomodoroFailed),
   dailyLogs: loadJSON(K.dailyLogs, DEFAULTS.dailyLogs),
   apiKey: loadStr(K.apiKey, DEFAULTS.apiKey),
+
   bgURL: loadStr(K.bgURL, DEFAULTS.bgURL),
+  bgMode: loadStr(K.bgMode, DEFAULTS.bgMode),
+
   reportMsg: loadStr(K.reportMsg, DEFAULTS.reportMsg),
   analysisTime: loadStr(K.analysisTime, DEFAULTS.analysisTime),
   focusMsg: loadStr(K.focusMsg, DEFAULTS.focusMsg),
 
   theme: loadJSON(K.theme, DEFAULTS.theme),
 
-  // legacy for migration
+  // legacy
   legacyGoals: loadJSON(K.goals, null),
   legacyLaw: loadNum(K.law, 0),
   legacyVocab: loadNum(K.vocab, 0),
@@ -156,7 +156,10 @@ function persistAll(){
   saveJSON(K.dailyLogs, data.dailyLogs);
 
   localStorage.setItem(K.apiKey, data.apiKey);
+
   localStorage.setItem(K.bgURL, data.bgURL);
+  localStorage.setItem(K.bgMode, data.bgMode);
+
   localStorage.setItem(K.reportMsg, data.reportMsg);
   localStorage.setItem(K.analysisTime, data.analysisTime);
   localStorage.setItem(K.focusMsg, data.focusMsg);
@@ -177,38 +180,23 @@ function ymKey(d){
   const m = pad2(d.getMonth()+1);
   return `${y}${m}`;
 }
-function startOfMonth(d){
-  return new Date(d.getFullYear(), d.getMonth(), 1);
-}
-function daysInMonth(d){
-  return new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
-}
-function firstWeekdayOfMonth(d){
-  return startOfMonth(d).getDay();
-}
-function addMonths(d, delta){
-  return new Date(d.getFullYear(), d.getMonth()+delta, 1);
-}
+function startOfMonth(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
+function daysInMonth(d){ return new Date(d.getFullYear(), d.getMonth()+1, 0).getDate(); }
+function firstWeekdayOfMonth(d){ return startOfMonth(d).getDay(); }
+function addMonths(d, delta){ return new Date(d.getFullYear(), d.getMonth()+delta, 1); }
 function sameDay(a,b){
-  return a.getFullYear()===b.getFullYear()
-    && a.getMonth()===b.getMonth()
-    && a.getDate()===b.getDate();
+  return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
 }
 function combineDateTime(baseDate, hhmm){
   const [hh, mm] = hhmm.split(":").map(Number);
   return new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), hh, mm, 0, 0);
 }
-function fmtTime(d){
-  const hh = pad2(d.getHours());
-  const mm = pad2(d.getMinutes());
-  return `${hh}:${mm}`;
-}
+function fmtTime(d){ return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
 function fmtDateHuman(key){
   if(!key || key.length!==8) return key;
   return `${key.slice(0,4)}/${key.slice(4,6)}/${key.slice(6,8)}`;
 }
 function parseISODateOnly(yyyy_mm_dd){
-  // safe local date (no timezone shift)
   const [y,m,d] = (yyyy_mm_dd || "").split("-").map(Number);
   if(!y || !m || !d) return null;
   return new Date(y, m-1, d, 0,0,0,0);
@@ -218,11 +206,10 @@ function daysUntil(yyyy_mm_dd){
   if(!target) return null;
   const today = new Date();
   const base = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0,0,0,0);
-  const diff = Math.ceil((target - base) / (1000*60*60*24));
-  return diff;
+  return Math.ceil((target - base) / (1000*60*60*24));
 }
 
-/** ========= Daily reset (pomodoro counts) ========= */
+/** ========= Daily reset ========= */
 function checkDailyReset(){
   const today = dateKey(new Date());
   const last = loadStr(K.lastReset, "");
@@ -234,7 +221,7 @@ function checkDailyReset(){
   }
 }
 
-/** ========= Events helpers ========= */
+/** ========= Events ========= */
 function normalizeEvents(){
   data.events = (data.events || []).map(e => ({
     id: e.id || crypto.randomUUID(),
@@ -262,7 +249,7 @@ function deleteEvent(id){
   persistAll();
 }
 
-/** ========= Minimal markdown renderer (bold + line breaks) ========= */
+/** ========= Minimal markdown renderer ========= */
 function mdToHtml(s){
   if(!s) return "";
   const esc = s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -279,16 +266,13 @@ async function geminiGenerate(prompt){
   const res = await fetch(url, {
     method:"POST",
     headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }]
-    })
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
   });
 
   if(!res.ok){
     const t = await res.text().catch(()=> "");
     throw new Error(`Gemini request failed: ${res.status} ${t}`);
   }
-
   const json = await res.json();
   return json?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
@@ -298,29 +282,21 @@ async function fetchFocusJab(reason){
     const now = new Date();
     const timeStr = now.toLocaleString("zh-TW", { hour12:false });
     const prompt =
-      `身分：高冷嚴厲教官。分析時間：${timeStr}。任務狀態：${reason}。成功：${data.pomodoroDone}。請給予一句 20 字內的反饋（請使用 Markdown **粗體**）。`;
-
+      `身分：高冷嚴厲教官。分析時間：${timeStr}。任務狀態：${reason}。成功：${data.pomodoroDone}。請給一句 20 字內反饋（Markdown **粗體**）。`;
     const msg = await geminiGenerate(prompt);
     data.focusMsg = msg || data.focusMsg;
     persistAll();
     render();
-  }catch(err){
+  }catch{
     data.focusMsg = `**（AI 連線失敗）** 先把下一個 25 分鐘跑完。`;
     persistAll();
     render();
   }
 }
 
-/** ========= Goal helpers ========= */
-function todayKey(){
-  return dateKey(new Date());
-}
-function getDailyProgressFor(dateK){
-  return data.dailyGoalProgress?.[dateK] || {};
-}
-function getTodayDailyProgress(){
-  return getDailyProgressFor(todayKey());
-}
+/** ========= Goals ========= */
+function todayKey(){ return dateKey(new Date()); }
+function getDailyProgressFor(dateK){ return data.dailyGoalProgress?.[dateK] || {}; }
 function setDailyProgress(dateK, goalId, value){
   if(!data.dailyGoalProgress) data.dailyGoalProgress = {};
   if(!data.dailyGoalProgress[dateK]) data.dailyGoalProgress[dateK] = {};
@@ -328,7 +304,106 @@ function setDailyProgress(dateK, goalId, value){
   saveJSON(K.dailyGoalProgress, data.dailyGoalProgress);
 }
 
-/** ========= Dashboard report input builder ========= */
+/** ========= Theme (吃你的 CSS 變數) ========= */
+function hexToRgb(hex){
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex);
+  if(!m) return null;
+  const n = parseInt(m[1], 16);
+  return { r: (n>>16)&255, g:(n>>8)&255, b:n&255 };
+}
+function rgbaOf(hex, a){
+  const rgb = hexToRgb(hex);
+  if(!rgb) return null;
+  return `rgba(${rgb.r},${rgb.g},${rgb.b},${a})`;
+}
+function applyTheme(){
+  const theme = data.theme || DEFAULTS.theme;
+  const accent = (theme.accent || DEFAULTS.theme.accent).trim();
+  if(!/^#([0-9a-fA-F]{6})$/.test(accent)) return;
+
+  const root = document.documentElement;
+  root.style.setProperty("--accent", accent);
+  root.style.setProperty("--accent2", rgbaOf(accent, 0.35));
+
+  // 推導出你 CSS 新增的 accent 系列（讓按鈕/圈圈/選中框都會跟著變）
+  root.style.setProperty("--accentSoft", rgbaOf(accent, 0.10));
+  root.style.setProperty("--accentBg", rgbaOf(accent, 0.22));
+  root.style.setProperty("--accentBorder", rgbaOf(accent, 0.32));
+  root.style.setProperty("--accentRing", rgbaOf(accent, 0.75));
+  root.style.setProperty("--accentOverlay", rgbaOf(accent, 0.08));
+}
+
+/** attempt auto theme from bg (uploaded dataURL works best; remote URL may CORS fail) */
+async function tryAutoThemeFromBg(){
+  const url = (data.bgURL || "").trim();
+  if(!url) throw new Error("no bg");
+
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.decoding = "async";
+
+  await new Promise((resolve, reject)=>{
+    img.onload = ()=> resolve();
+    img.onerror = ()=> reject(new Error("image load failed"));
+    img.src = url;
+  });
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently:true });
+  const w = 64, h = 64;
+  canvas.width = w; canvas.height = h;
+  ctx.drawImage(img, 0, 0, w, h);
+
+  const { data: px } = ctx.getImageData(0,0,w,h);
+  let r=0,g=0,b=0,count=0;
+  for(let i=0;i<px.length;i+=4){
+    const a = px[i+3];
+    if(a < 10) continue;
+    r += px[i]; g += px[i+1]; b += px[i+2];
+    count++;
+  }
+  if(count <= 0) throw new Error("no pixels");
+
+  r = Math.round(r/count); g = Math.round(g/count); b = Math.round(b/count);
+  const hex = `#${r.toString(16).padStart(2,"0")}${g.toString(16).padStart(2,"0")}${b.toString(16).padStart(2,"0")}`;
+
+  data.theme = { accent: hex, mode: "auto" };
+  persistAll();
+  applyTheme();
+}
+
+/** ========= Background Upload ========= */
+async function fileToCompressedDataURL(file, maxW=1600, quality=0.86){
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxW / bitmap.width);
+  const w = Math.round(bitmap.width * scale);
+  const h = Math.round(bitmap.height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bitmap, 0, 0, w, h);
+
+  // 盡量壓成 jpeg（比較省 localStorage），避免 5MB 爆掉
+  const dataUrl = canvas.toDataURL("image/jpeg", quality);
+  bitmap.close?.();
+  return dataUrl;
+}
+
+async function setBackgroundFromUpload(file){
+  const dataUrl = await fileToCompressedDataURL(file);
+  try{
+    data.bgURL = dataUrl;
+    data.bgMode = "upload";
+    persistAll();
+  }catch(e){
+    // localStorage 爆掉時
+    alert("背景圖太大導致儲存失敗。建議換小張或再壓縮。");
+    throw e;
+  }
+}
+
+/** ========= Dashboard report prompt ========= */
 function buildGoalStatusText(){
   const tKey = todayKey();
   const dp = getDailyProgressFor(tKey);
@@ -355,7 +430,6 @@ function buildGoalStatusText(){
     longLines: longLines || "（無長期目標）",
   };
 }
-
 function buildHistLog(days=5){
   const cal = new Date();
   let out = [];
@@ -388,11 +462,11 @@ async function fetchDashboardReport(){
   const goalStatus = buildGoalStatusText();
 
   const prompt = `
-【身分】高考全職考生，28歲，之前賺的存款都快花光了。
+【身分】高考全職考生，28歲，存款快花光。
 【分析當下時間】：${currentTimeStr}
 
 【今日任務完成】完課：${todayDoneList || "（無）"}。
-【番茄鐘】專注成功：${data.pomodoroDone}。失敗：${data.pomodoroFailed}。
+【番茄鐘】成功：${data.pomodoroDone}。失敗：${data.pomodoroFailed}。
 
 【每日目標（今日進度）】
 ${goalStatus.dailyLines}
@@ -404,15 +478,15 @@ ${goalStatus.longLines}
 【歷史校正資料】：${histLog}。
 
 【要求】：
-1. 產出 220 字內深度學習診斷。必須把「每日目標達成度」與「長期目標進度/風險」納入評估。Markdown **粗體** 關鍵字。
-2. 回應使用者的「本日反思」並對話。
-3. 進行性格與習性分析（不超過100字）。
-4. 依據時間給出具體下一步（可執行、可量化）。
-5. 會參考過去五天的 histLog 給予整體回饋，避免只看一天。
+1) 220 字內深度學習診斷，必須把「每日目標達成度」與「長期目標進度/風險」納入評估（Markdown **粗體**）。
+2) 回應反思並對話。
+3) 性格/習性分析（<=100字）。
+4) 給出具體下一步（可執行、可量化）。
+5) 參考過去五天 histLog 避免只看一天。
 【結尾格式】：
 SCORE: [0-100]
 LOG: [50字今日總結]
-CHAR: [性格習性分析，不超過100字]
+CHAR: [<=100字性格分析]
 `.trim();
 
   try{
@@ -434,7 +508,6 @@ CHAR: [性格習性分析，不超過100字]
         if(logComp.length > 1) char = (logComp[1] || "").trim();
       }
 
-      // save snapshot of goals for this day (optional but useful for history)
       const snapshot = {
         daily: getDailyProgressFor(todayK),
         long: (data.longGoals || []).map(g => ({ id:g.id, title:g.title, total:g.total, completed:g.completed, deadline:g.deadline })),
@@ -450,7 +523,7 @@ CHAR: [性格習性分析，不超過100字]
     persistAll();
 
     state.reflection = "";
-  }catch(err){
+  }catch{
     data.reportMsg = "**（AI 連線失敗）** 先把今天最重要的兩件事做完，再回來提交。";
     persistAll();
   }finally{
@@ -459,70 +532,7 @@ CHAR: [性格習性分析，不超過100字]
   }
 }
 
-/** ========= Theme ========= */
-function applyTheme(){
-  const theme = data.theme || DEFAULTS.theme;
-  const accent = (theme.accent || DEFAULTS.theme.accent).trim();
-
-  document.documentElement.style.setProperty("--cyan", accent);
-
-  // 你 CSS 若有用其他衍生色（如 --cyanSoft），也可以在這裡加
-  // document.documentElement.style.setProperty("--cyanSoft", accent + "AA");
-}
-
-/** attempt auto color from bg (may fail due to CORS) */
-async function tryAutoThemeFromBg(){
-  const url = (data.bgURL || "").trim();
-  if(!url) throw new Error("no bg");
-
-  const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.decoding = "async";
-
-  const p = new Promise((resolve, reject)=>{
-    img.onload = ()=> resolve();
-    img.onerror = ()=> reject(new Error("image load failed"));
-  });
-
-  img.src = url;
-  await p;
-
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d", { willReadFrequently:true });
-  const w = 64, h = 64;
-  canvas.width = w; canvas.height = h;
-  ctx.drawImage(img, 0, 0, w, h);
-
-  const { data: pixels } = ctx.getImageData(0,0,w,h);
-
-  let r=0,g=0,b=0,count=0;
-  for(let i=0;i<pixels.length;i+=4){
-    const a = pixels[i+3];
-    if(a < 10) continue;
-    r += pixels[i];
-    g += pixels[i+1];
-    b += pixels[i+2];
-    count++;
-  }
-  if(count <= 0) throw new Error("no pixels");
-
-  r = Math.round(r/count);
-  g = Math.round(g/count);
-  b = Math.round(b/count);
-
-  // slightly boost saturation/brightness-ish by nudging towards mid
-  const hex = rgbToHex(r,g,b);
-  data.theme = { accent: hex, mode: "auto" };
-  persistAll();
-  applyTheme();
-}
-
-function rgbToHex(r,g,b){
-  const to = (n)=> n.toString(16).padStart(2,"0");
-  return `#${to(r)}${to(g)}${to(b)}`;
-}
-
-/** ========= UI Rendering ========= */
+/** ========= UI ========= */
 const elContent = document.getElementById("content");
 const elTitle = document.getElementById("pageTitle");
 const elSubtitle = document.getElementById("pageSubtitle");
@@ -530,18 +540,15 @@ const elTopbarRight = document.getElementById("topbarRight");
 const elBg = document.getElementById("bg");
 
 function setTab(tab){
-  // leaving focus tab while running => arm auto-fail grace (kept from your pomodoro fix version if你有用那份)
   if(state.tab === "focus" && tab !== "focus"){
     if(state.focusSession?.status === "running"){
       armAway("切換頁籤");
     }
   }
-
   if(tab === "focus"){
     disarmAway();
     reconcileRunningClock();
   }
-
   state.tab = tab;
   render();
 }
@@ -554,12 +561,10 @@ function renderTopbar(){
     history: ["學習與性格履歷", "用分數點亮你的月曆"],
     settings: ["設定", "API Key / 背景 / 目標 / 色調 / 資料管理"],
   };
-
   const [t, s] = map[state.tab] || ["", ""];
   elTitle.textContent = t;
   elSubtitle.textContent = s;
 
-  // ✅ D- from user-config examDate
   const target = parseISODateOnly(data.examDate) || new Date(2026,0,31);
   const today = new Date();
   const base = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -578,6 +583,7 @@ function renderTabbar(){
 function render(){
   applyTheme();
 
+  // 背景：dataURL 或 URL 都可以
   elBg.style.backgroundImage = `url("${data.bgURL}")`;
 
   renderTopbar();
@@ -592,7 +598,7 @@ function render(){
   bindDynamicHandlers();
 }
 
-/** ========= Calendar View ========= */
+/** ========= Calendar ========= */
 function renderCalendar(){
   const d = state.selectedDate;
   const monthLabel = `${d.getFullYear()}/${pad2(d.getMonth()+1)}`;
@@ -661,11 +667,11 @@ function renderCalendar(){
       </div>
 
       <div style="margin-top:12px; display:flex; gap:10px;">
-        <div class="card" style="margin:0; padding:12px; flex:1; background:var(--card2)">
+        <div class="card" style="margin:0; padding:12px; flex:1; background:var(--glass2)">
           <div class="small">起床</div>
           <input class="input mono" id="wakeInput" value="${data.wakeTime}" />
         </div>
-        <div class="card" style="margin:0; padding:12px; flex:1; background:var(--card2)">
+        <div class="card" style="margin:0; padding:12px; flex:1; background:var(--glass2)">
           <div class="small">睡覺</div>
           <input class="input mono" id="sleepInput" value="${data.sleepTime}" />
         </div>
@@ -682,14 +688,14 @@ function renderCalendar(){
   `;
 }
 
-/** ========= Focus View ========= */
+/** ========= Focus ========= */
 function renderFocus(){
   if(state.activeTaskFromSchedule){
     state.focusTaskName = state.activeTaskFromSchedule;
     state.activeTaskFromSchedule = "";
     if(state.focusSession){
       state.focusSession.taskName = state.focusTaskName;
-      persistAll();
+      saveFocusSession();
     }
   }
 
@@ -722,7 +728,7 @@ function renderFocus(){
         <svg viewBox="0 0 260 260">
           <circle cx="130" cy="130" r="${radius}" stroke="rgba(255,255,255,0.08)" stroke-width="12" fill="none"></circle>
           <circle cx="130" cy="130" r="${radius}"
-            stroke="var(--cyan)" stroke-width="12" fill="none"
+            stroke="var(--accent)" stroke-width="12" fill="none"
             stroke-dasharray="${dash} ${circumference}"
             stroke-linecap="round"></circle>
         </svg>
@@ -730,7 +736,7 @@ function renderFocus(){
       </div>
 
       <div class="centerText small" style="margin-top:10px;">
-        <div style="color:var(--cyan); font-style:italic; line-height:1.6;">${hint || ""}</div>
+        <div style="color:var(--accent); font-style:italic; line-height:1.6;">${hint || ""}</div>
       </div>
 
       <div class="row" style="justify-content:center; margin-top:14px;">
@@ -740,21 +746,38 @@ function renderFocus(){
       </div>
 
       <div class="row" style="justify-content:center; margin-top:14px;">
-        <button class="btn primary" data-action="toggleFocus">
-          ${state.isFocusing ? "暫停" : "開始"}
-        </button>
+        <button class="btn primary" data-action="toggleFocus">${state.isFocusing ? "暫停" : "開始"}</button>
         <button class="btn danger" data-action="abandon">放棄</button>
       </div>
 
       <div class="small centerText" style="margin-top:12px;">
         成功：<b style="color:var(--good)">${data.pomodoroDone}</b>　
-        失敗：<b style="color:var(--danger)">${data.pomodoroFailed}</b>
+        失敗：<b style="color:var(--bad)">${data.pomodoroFailed}</b>
       </div>
     </div>
   `;
 }
 
-/** ========= Dashboard View ========= */
+/** ========= Dashboard ========= */
+function counterRowHtml(title, value, total, key, step, unit="", rightBadgeHtml=""){
+  const display = total > 0 ? `${value}/${total}${unit}` : `${value}${unit}`;
+  return `
+    <div class="row-between" style="padding:10px 0;">
+      <div style="min-width:0;">
+        <div style="display:flex; gap:8px; align-items:center;">
+          <b style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(title)}</b>
+          ${rightBadgeHtml || ""}
+        </div>
+      </div>
+      <div class="row" style="gap:8px; flex:0 0 auto;">
+        <button class="btn" data-action="counterDec" data-key="${escapeAttr(key)}" data-step="${step}">－</button>
+        <div class="mono" style="min-width:120px; text-align:center; font-weight:900;">${escapeHtml(display)}</div>
+        <button class="btn primary" data-action="counterInc" data-key="${escapeAttr(key)}" data-step="${step}">＋</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderDashboard(){
   const tKey = todayKey();
   const todayDone = data.events.filter(e => dateKey(new Date(e.date)) === tKey && e.isDone);
@@ -777,21 +800,18 @@ function renderDashboard(){
   const dp = getDailyProgressFor(tKey);
 
   const dailyCounters = (data.dailyGoals || []).length
-    ? (data.dailyGoals || []).map(g=>{
+    ? data.dailyGoals.map(g=>{
         const v = Number(dp?.[g.id] || 0);
-        const total = Number(g.target || 0);
-        const unit = g.unit || "";
-        const step = Number(g.step || 1);
-        return counterRowHtml(`${g.title}（每日）`, v, total, `daily:${g.id}`, step, unit);
+        return counterRowHtml(`${g.title}`, v, Number(g.target||0), `daily:${g.id}`, Number(g.step||1), g.unit||"");
       }).join("")
     : `<div class="small">尚無每日目標。請到「設定」新增。</div>`;
 
   const longCounters = (data.longGoals || []).length
-    ? (data.longGoals || []).map(g=>{
+    ? data.longGoals.map(g=>{
         const ddl = g.deadline || data.examDate || "";
         const left = daysUntil(ddl);
-        const leftText = (left === null) ? "" : (left >= 0 ? ` D-${left}` : ` 已過期${Math.abs(left)}天`);
-        return counterRowHtml(`${g.title}（長期${leftText}）`, Number(g.completed||0), Number(g.total||0), `long:${g.id}`, 1, "");
+        const badge = (left === null) ? "" : `<span class="pill accent">D-${Math.max(0,left)}</span>`;
+        return counterRowHtml(`${g.title}`, Number(g.completed||0), Number(g.total||0), `long:${g.id}`, 1, "", badge);
       }).join("")
     : `<div class="small">尚無長期目標。請到「設定」新增。</div>`;
 
@@ -800,7 +820,7 @@ function renderDashboard(){
       <h3>本日反思與對話</h3>
       <textarea class="textarea" id="reflectionInput" placeholder="向教官報告今天的心情或反省...">${escapeHtml(state.reflection || "")}</textarea>
       <div class="small" style="margin-top:8px;">
-        建議：只寫一句「我今天卡住的點」＋一句「我下一步要做什麼」。
+        建議：一句「卡住點」＋一句「下一步」。
       </div>
     </div>
 
@@ -810,7 +830,7 @@ function renderDashboard(){
         ${analysisTime}
       </div>
       ${state.isReportLoading ? `<div class="small" style="margin-top:10px;">正在計算勝率...</div>` : ""}
-      <div style="margin-top:10px; line-height:1.7; white-space:normal;">
+      <div style="margin-top:10px; line-height:1.7;">
         ${reportHtml}
       </div>
     </div>
@@ -828,13 +848,14 @@ function renderDashboard(){
     <div class="card">
       <h3>長期目標（累積）</h3>
       ${longCounters}
+      <div class="small" style="margin-top:8px;">（長期目標的截止日可在設定修改。右側 badge 只顯示 D-，不會把框撐長。）</div>
     </div>
 
     <div class="card">
       <h3>起床/專注統計</h3>
       <div class="row-between"><div>起床時間</div><div class="mono"><b>${escapeHtml(data.wakeTime)}</b></div></div>
       <div class="row-between" style="margin-top:8px;"><div>專注成功</div><div style="color:var(--good)"><b>${data.pomodoroDone}</b></div></div>
-      <div class="row-between" style="margin-top:8px;"><div>分心失敗</div><div style="color:var(--danger)"><b>${data.pomodoroFailed}</b></div></div>
+      <div class="row-between" style="margin-top:8px;"><div>分心失敗</div><div style="color:var(--bad)"><b>${data.pomodoroFailed}</b></div></div>
     </div>
 
     <button class="btn primary" data-action="submitReport" ${state.isReportLoading ? "disabled" : ""}>
@@ -843,21 +864,7 @@ function renderDashboard(){
   `;
 }
 
-function counterRowHtml(title, value, total, key, step, unit=""){
-  const display = total > 0 ? `${value}/${total}${unit}` : `${value}${unit}`;
-  return `
-    <div class="row-between" style="padding:10px 0;">
-      <div><b>${escapeHtml(title)}</b></div>
-      <div class="row" style="gap:8px;">
-        <button class="btn" data-action="counterDec" data-key="${escapeAttr(key)}" data-step="${step}">－</button>
-        <div class="mono" style="min-width:120px; text-align:center; font-weight:900;">${escapeHtml(display)}</div>
-        <button class="btn primary" data-action="counterInc" data-key="${escapeAttr(key)}" data-step="${step}">＋</button>
-      </div>
-    </div>
-  `;
-}
-
-/** ========= History View ========= */
+/** ========= History ========= */
 function renderHistory(){
   const d = state.selectedDate;
   const monthLabel = `${d.getFullYear()}/${pad2(d.getMonth()+1)}`;
@@ -923,25 +930,10 @@ function renderHistory(){
       `;
     }).join("") : `<div class="small">無記錄</div>`;
 
-    // show daily goals snapshot (if exists)
-    let snapshotHtml = "";
-    if(log?.goalSnapshot){
-      const dp = log.goalSnapshot.daily || {};
-      const dailyLines = (data.dailyGoals || []).map(g=>{
-        const v = Number(dp?.[g.id] || 0);
-        return `<div class="small mono">${escapeHtml(g.title)}：${v}/${g.target}${g.unit||""}</div>`;
-      }).join("");
-      snapshotHtml = `
-        <div class="divider"></div>
-        <div class="small">【當日每日目標快照】</div>
-        ${dailyLines || `<div class="small">（無）</div>`}
-      `;
-    }
-
     return `
       <div class="card">
         <div class="row-between">
-          <div style="color:var(--cyan); font-weight:900;">${fmtDateHuman(k)}</div>
+          <div style="color:var(--accent); font-weight:900;">${fmtDateHuman(k)}</div>
           <div style="font-size:18px; font-weight:900; color:var(--good);">評分: ${score}</div>
         </div>
         <div style="margin-top:10px;">
@@ -950,9 +942,8 @@ function renderHistory(){
         </div>
         <div style="margin-top:10px;">
           <div class="small">【性格分析】</div>
-          <div style="line-height:1.6; color: rgba(0,229,255,0.85); font-style:italic;">${escapeHtml(ch)}</div>
+          <div style="line-height:1.6; color: var(--accent); opacity:0.9; font-style:italic;">${escapeHtml(ch)}</div>
         </div>
-        ${snapshotHtml}
         <div class="divider"></div>
         <div class="small">【本日時間軸】</div>
         ${timeline}
@@ -980,19 +971,20 @@ function renderHistory(){
   `;
 }
 
-/** ========= Settings View ========= */
+/** ========= Settings (背景上傳 + 改色真的影響按鈕) ========= */
 function renderSettings(){
   const theme = data.theme || DEFAULTS.theme;
+  const isUpload = data.bgMode === "upload" || (data.bgURL || "").startsWith("data:");
 
   const longList = (data.longGoals || []).map(g=>{
     return `
-      <div class="card" style="margin:10px 0; background:var(--card2)">
+      <div class="card" style="margin:10px 0; background:var(--glass2)">
         <div class="small">長期目標</div>
         <div style="margin-top:8px;">
           <input class="input" data-goal-field="title" data-id="${g.id}" value="${escapeAttr(g.title)}" placeholder="科目/名稱" />
         </div>
         <div class="row" style="margin-top:8px;">
-          <input class="input mono" style="flex:1" data-goal-field="total" data-id="${g.id}" value="${escapeAttr(g.total)}" placeholder="總量(堂/章/單元)" />
+          <input class="input mono" style="flex:1" data-goal-field="total" data-id="${g.id}" value="${escapeAttr(g.total)}" placeholder="總量" />
           <input class="input mono" style="flex:1" data-goal-field="completed" data-id="${g.id}" value="${escapeAttr(g.completed)}" placeholder="已完成" />
         </div>
         <div style="margin-top:8px;">
@@ -1008,7 +1000,7 @@ function renderSettings(){
 
   const dailyList = (data.dailyGoals || []).map(g=>{
     return `
-      <div class="card" style="margin:10px 0; background:var(--card2)">
+      <div class="card" style="margin:10px 0; background:var(--glass2)">
         <div class="small">每日目標</div>
         <div style="margin-top:8px;">
           <input class="input" data-dgoal-field="title" data-id="${g.id}" value="${escapeAttr(g.title)}" placeholder="名稱" />
@@ -1031,7 +1023,7 @@ function renderSettings(){
   return `
     <div class="card">
       <h3>Gemini API</h3>
-      <div class="small">注意：API Key 會存於瀏覽器 localStorage（同機器同瀏覽器可見）。</div>
+      <div class="small">API Key 會存於 localStorage。</div>
       <div style="margin-top:10px;">
         <input class="input" id="apiKeyInput" value="${escapeAttr(data.apiKey)}" placeholder="Gemini API Key" />
       </div>
@@ -1042,10 +1034,25 @@ function renderSettings(){
 
     <div class="card">
       <h3>背景圖片</h3>
-      <input class="input" id="bgUrlInput" value="${escapeAttr(data.bgURL)}" placeholder="背景 URL" />
+
+      <div class="small">支援「上傳」或「貼 URL」。上傳會自動壓縮並存到 localStorage（太大可能會存不下）。</div>
+
       <div class="row" style="margin-top:10px;">
-        <button class="btn primary" data-action="saveBg">儲存背景</button>
+        <input type="file" id="bgFileInput" accept="image/*" style="flex:1" />
+        <button class="btn primary" data-action="uploadBg">上傳套用</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <input class="input" id="bgUrlInput" value="${escapeAttr(isUpload ? "" : data.bgURL)}" placeholder="背景 URL（可選）" />
+      <div class="row" style="margin-top:10px;">
+        <button class="btn" data-action="saveBgUrl">使用 URL</button>
         <button class="btn" data-action="resetBg">恢復預設</button>
+        ${isUpload ? `<button class="btn danger" data-action="clearUploadBg">清除上傳</button>` : ""}
+      </div>
+
+      <div class="small" style="margin-top:10px;">
+        目前模式：<b>${isUpload ? "上傳背景" : "URL 背景"}</b>
       </div>
     </div>
 
@@ -1062,23 +1069,23 @@ function renderSettings(){
 
     <div class="card">
       <h3>色調（主色）</h3>
-      <div class="small">會套用到重點色（CSS 變數 --cyan）。如果背景換了覺得刺眼，直接換這個。</div>
+      <div class="small">會直接改 CSS 的 --accent / --accent2，所以按鈕、focus ring、選中框都會變色。</div>
       <div class="row" style="margin-top:10px; gap:10px; align-items:center;">
         <input class="input mono" id="accentInput" value="${escapeAttr(theme.accent || DEFAULTS.theme.accent)}" placeholder="#RRGGBB" />
         <input type="color" id="accentPicker" value="${escapeAttr(theme.accent || DEFAULTS.theme.accent)}" style="height:42px; width:56px; border:none; background:transparent;" />
       </div>
       <div class="row" style="margin-top:10px;">
         <button class="btn primary" data-action="saveAccent">儲存主色</button>
-        <button class="btn" data-action="autoAccent">自動從背景抓色</button>
+        <button class="btn" data-action="autoAccent">從背景抓色</button>
       </div>
       <div class="small" style="margin-top:8px; opacity:0.85;">
-        ※ 自動抓色若失敗，多半是圖片跨域限制，改用手動選色即可。
+        ※ 從 URL 抓色可能因跨域失敗；上傳背景通常成功。
       </div>
     </div>
 
     <div class="card">
       <h3>長期目標（可自訂）</h3>
-      <div class="small">行政學/政治學這類，會評估進度與截止日風險。</div>
+      <div class="small">行政學/政治學這類，有截止日。Dashboard 不再顯示「（長期D-xx）」字樣，只顯示短 badge。</div>
 
       <div style="margin-top:10px;">
         <input class="input" id="newLongTitle" placeholder="新增：名稱（例：行政學）" />
@@ -1121,7 +1128,7 @@ function renderSettings(){
 
     <div class="card">
       <h3>資料管理</h3>
-      <div class="small">匯出/匯入可以換電腦用；重置會清空所有資料。</div>
+      <div class="small">匯出/匯入可換電腦；重置會清空所有資料。</div>
       <div class="row" style="margin-top:10px;">
         <button class="btn" data-action="exportData">匯出 JSON</button>
         <button class="btn" data-action="importData">匯入 JSON</button>
@@ -1132,112 +1139,17 @@ function renderSettings(){
   `;
 }
 
-/** ========= Dialog (Add/Edit Task) ========= */
-const taskDialog = document.getElementById("taskDialog");
-const taskDialogTitle = document.getElementById("taskDialogTitle");
-const taskTitle = document.getElementById("taskTitle");
-const taskStart = document.getElementById("taskStart");
-const taskEnd = document.getElementById("taskEnd");
-const btnSaveTask = document.getElementById("btnSaveTask");
-const btnDeleteTask = document.getElementById("btnDeleteTask");
-const segBtns = Array.from(document.querySelectorAll(".segmented .seg"));
-
-let dialogMode = "add";
-let dialogEditingId = null;
-let dialogType = "Study";
-let dialogDate = null;
-
-function openTaskDialog(mode, dateObj, existing=null){
-  dialogMode = mode;
-  dialogDate = dateObj;
-  dialogEditingId = existing?.id || null;
-
-  if(mode === "add"){
-    taskDialogTitle.textContent = "新增日程規劃";
-    btnDeleteTask.style.display = "none";
-    taskTitle.value = "";
-    dialogType = "Study";
-    taskStart.value = "09:00";
-    taskEnd.value = "10:00";
-  }else{
-    taskDialogTitle.textContent = "編輯日程規劃";
-    btnDeleteTask.style.display = "inline-block";
-    taskTitle.value = existing?.title || "";
-    dialogType = existing?.type || "Study";
-    const st = new Date(existing.date);
-    const et = existing.endTime ? new Date(existing.endTime) : new Date(st.getTime() + 60*60*1000);
-    taskStart.value = fmtTime(st);
-    taskEnd.value = fmtTime(et);
-  }
-
-  segBtns.forEach(b=> b.classList.toggle("active", b.dataset.type === dialogType));
-  taskDialog.showModal();
-}
-
-segBtns.forEach(b=>{
-  b.onclick = ()=>{
-    dialogType = b.dataset.type;
-    segBtns.forEach(x=> x.classList.toggle("active", x === b));
-  };
-});
-
-btnSaveTask.onclick = ()=>{
-  const title = taskTitle.value.trim();
-  if(!title) return;
-
-  const st = combineDateTime(dialogDate, taskStart.value || "09:00");
-  const et = combineDateTime(dialogDate, taskEnd.value || "10:00");
-
-  if(dialogMode === "edit" && dialogEditingId){
-    const existing = data.events.find(e=> e.id === dialogEditingId);
-    if(existing){
-      existing.title = title;
-      existing.type = dialogType;
-      existing.date = st.toISOString();
-      existing.endTime = et.toISOString();
-      upsertEvent(existing);
-    }
-  }else{
-    const evt = {
-      id: crypto.randomUUID(),
-      title,
-      date: st.toISOString(),
-      endTime: et.toISOString(),
-      type: dialogType,
-      isDone: false,
-    };
-    upsertEvent(evt);
-  }
-
-  taskDialog.close();
-  render();
-};
-
-btnDeleteTask.onclick = ()=>{
-  if(dialogEditingId){
-    deleteEvent(dialogEditingId);
-    taskDialog.close();
-    render();
-  }
-};
-
-/** ========= Dynamic handlers ========= */
+/** ========= Bind Handlers ========= */
 function bindDynamicHandlers(){
-  // month nav (calendar + history)
+  // month nav
   elContent.querySelectorAll("[data-action='monthPrev']").forEach(btn=>{
-    btn.onclick = ()=>{
-      state.selectedDate = addMonths(state.selectedDate, -1);
-      render();
-    };
+    btn.onclick = ()=>{ state.selectedDate = addMonths(state.selectedDate, -1); render(); };
   });
   elContent.querySelectorAll("[data-action='monthNext']").forEach(btn=>{
-    btn.onclick = ()=>{
-      state.selectedDate = addMonths(state.selectedDate, +1);
-      render();
-    };
+    btn.onclick = ()=>{ state.selectedDate = addMonths(state.selectedDate, +1); render(); };
   });
 
-  // day click (calendar + history)
+  // day click
   elContent.querySelectorAll(".day[data-day]").forEach(cell=>{
     cell.onclick = ()=>{
       const day = Number(cell.dataset.day);
@@ -1246,11 +1158,10 @@ function bindDynamicHandlers(){
     };
   });
 
-  // calendar actions
+  // calendar add/save
   elContent.querySelectorAll("[data-action='addTask']").forEach(btn=>{
     btn.onclick = ()=> openTaskDialog("add", state.selectedDate);
   });
-
   const wakeInput = elContent.querySelector("#wakeInput");
   const sleepInput = elContent.querySelector("#sleepInput");
   const saveWakeSleepBtn = elContent.querySelector("[data-action='saveWakeSleep']");
@@ -1258,8 +1169,7 @@ function bindDynamicHandlers(){
     saveWakeSleepBtn.onclick = ()=>{
       data.wakeTime = wakeInput.value || data.wakeTime;
       data.sleepTime = sleepInput.value || data.sleepTime;
-      persistAll();
-      render();
+      persistAll(); render();
     };
   }
 
@@ -1313,12 +1223,8 @@ function bindDynamicHandlers(){
       render();
     };
   });
-  elContent.querySelectorAll("[data-action='toggleFocus']").forEach(btn=>{
-    btn.onclick = ()=> toggleFocus();
-  });
-  elContent.querySelectorAll("[data-action='abandon']").forEach(btn=>{
-    btn.onclick = ()=> abandonTask();
-  });
+  elContent.querySelectorAll("[data-action='toggleFocus']").forEach(btn=> btn.onclick = ()=> toggleFocus());
+  elContent.querySelectorAll("[data-action='abandon']").forEach(btn=> btn.onclick = ()=> abandonTask());
 
   // dashboard submit
   elContent.querySelectorAll("[data-action='submitReport']").forEach(btn=>{
@@ -1329,7 +1235,7 @@ function bindDynamicHandlers(){
     };
   });
 
-  // counters (daily + long)
+  // counters
   elContent.querySelectorAll("[data-action='counterInc']").forEach(btn=>{
     btn.onclick = ()=>{
       const key = btn.dataset.key;
@@ -1347,31 +1253,53 @@ function bindDynamicHandlers(){
     };
   });
 
-  // settings: api/bg
+  // settings: api
   elContent.querySelectorAll("[data-action='saveApiKey']").forEach(btn=>{
     btn.onclick = ()=>{
       const v = (document.getElementById("apiKeyInput")?.value || "").trim();
-      data.apiKey = v;
-      persistAll();
-      render();
+      data.apiKey = v; persistAll(); render();
       alert("已儲存 API Key");
     };
   });
-  elContent.querySelectorAll("[data-action='saveBg']").forEach(btn=>{
+
+  // settings: background upload
+  elContent.querySelectorAll("[data-action='uploadBg']").forEach(btn=>{
+    btn.onclick = async ()=>{
+      const input = document.getElementById("bgFileInput");
+      const file = input?.files?.[0];
+      if(!file) return alert("請先選擇圖片檔");
+      try{
+        await setBackgroundFromUpload(file);
+        render();
+        alert("已上傳並套用背景（已壓縮）");
+      }catch{ /* handled */ }
+    };
+  });
+
+  // settings: background url
+  elContent.querySelectorAll("[data-action='saveBgUrl']").forEach(btn=>{
     btn.onclick = ()=>{
       const v = (document.getElementById("bgUrlInput")?.value || "").trim();
-      if(!v) return;
+      if(!v) return alert("請輸入背景 URL");
       data.bgURL = v;
+      data.bgMode = "url";
       persistAll();
       render();
-      alert("已儲存背景");
+      alert("已套用 URL 背景");
     };
   });
   elContent.querySelectorAll("[data-action='resetBg']").forEach(btn=>{
     btn.onclick = ()=>{
       data.bgURL = DEFAULTS.bgURL;
-      persistAll();
-      render();
+      data.bgMode = "url";
+      persistAll(); render();
+    };
+  });
+  elContent.querySelectorAll("[data-action='clearUploadBg']").forEach(btn=>{
+    btn.onclick = ()=>{
+      data.bgURL = DEFAULTS.bgURL;
+      data.bgMode = "url";
+      persistAll(); render();
     };
   });
 
@@ -1380,17 +1308,15 @@ function bindDynamicHandlers(){
     btn.onclick = ()=>{
       const v = (document.getElementById("examDateInput")?.value || "").trim();
       if(v && !/^\d{4}-\d{2}-\d{2}$/.test(v)){
-        alert("日期格式請用 YYYY-MM-DD");
-        return;
+        alert("日期格式請用 YYYY-MM-DD"); return;
       }
       data.examDate = v || DEFAULTS.examDate;
-      persistAll();
-      render();
+      persistAll(); render();
       alert("已儲存考試日期");
     };
   });
 
-  // settings: theme
+  // settings: accent
   const accentPicker = document.getElementById("accentPicker");
   const accentInput = document.getElementById("accentInput");
   if(accentPicker && accentInput){
@@ -1400,14 +1326,13 @@ function bindDynamicHandlers(){
     btn.onclick = ()=>{
       const v = (document.getElementById("accentInput")?.value || "").trim();
       if(!/^#([0-9a-fA-F]{6})$/.test(v)){
-        alert("主色請用 #RRGGBB 格式");
-        return;
+        alert("主色請用 #RRGGBB 格式"); return;
       }
       data.theme = { accent: v, mode: "manual" };
       persistAll();
       applyTheme();
       render();
-      alert("已儲存主色");
+      alert("已儲存主色（按鈕會跟著變）");
     };
   });
   elContent.querySelectorAll("[data-action='autoAccent']").forEach(btn=>{
@@ -1416,8 +1341,8 @@ function bindDynamicHandlers(){
         await tryAutoThemeFromBg();
         render();
         alert(`自動配色完成：${data.theme.accent}`);
-      }catch(e){
-        alert("自動配色失敗（常見原因：圖片跨域不允許讀像素）。請改用手動選色。");
+      }catch{
+        alert("自動配色失敗（URL 可能跨域）。若使用上傳背景通常可成功。");
       }
     };
   });
@@ -1433,15 +1358,8 @@ function bindDynamicHandlers(){
       if(!Number.isFinite(total) || total <= 0) return alert("總量請輸入正數");
       if(deadline && !/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return alert("截止日格式請用 YYYY-MM-DD");
 
-      data.longGoals.unshift({
-        id: crypto.randomUUID(),
-        title,
-        total,
-        completed: 0,
-        deadline: deadline || "",
-      });
-      persistAll();
-      render();
+      data.longGoals.unshift({ id: crypto.randomUUID(), title, total, completed: 0, deadline: deadline || "" });
+      persistAll(); render();
     };
   });
 
@@ -1466,8 +1384,7 @@ function bindDynamicHandlers(){
       g.completed = Math.max(0, completed);
       g.deadline = deadline;
 
-      persistAll();
-      render();
+      persistAll(); render();
       alert("已儲存長期目標");
     };
   });
@@ -1477,8 +1394,7 @@ function bindDynamicHandlers(){
       const id = btn.dataset.id;
       if(!confirm("確定刪除這個長期目標？")) return;
       data.longGoals = data.longGoals.filter(x=> x.id !== id);
-      persistAll();
-      render();
+      persistAll(); render();
     };
   });
 
@@ -1494,15 +1410,8 @@ function bindDynamicHandlers(){
       if(!Number.isFinite(target) || target <= 0) return alert("每日目標量請輸入正數");
       if(!Number.isFinite(step) || step <= 0) return alert("步進請輸入正數");
 
-      data.dailyGoals.unshift({
-        id: crypto.randomUUID(),
-        title,
-        target,
-        step,
-        unit: unit || "",
-      });
-      persistAll();
-      render();
+      data.dailyGoals.unshift({ id: crypto.randomUUID(), title, target, step, unit: unit || "" });
+      persistAll(); render();
     };
   });
 
@@ -1521,13 +1430,8 @@ function bindDynamicHandlers(){
       if(!Number.isFinite(target) || target <= 0) return alert("每日目標量請輸入正數");
       if(!Number.isFinite(step) || step <= 0) return alert("步進請輸入正數");
 
-      g.title = title;
-      g.target = target;
-      g.step = step;
-      g.unit = unit;
-
-      persistAll();
-      render();
+      g.title = title; g.target = target; g.step = step; g.unit = unit;
+      persistAll(); render();
       alert("已儲存每日目標");
     };
   });
@@ -1535,23 +1439,16 @@ function bindDynamicHandlers(){
   elContent.querySelectorAll("[data-action='delDailyGoal']").forEach(btn=>{
     btn.onclick = ()=>{
       const id = btn.dataset.id;
-      if(!confirm("確定刪除這個每日目標？（歷史紀錄不會被改掉）")) return;
+      if(!confirm("確定刪除這個每日目標？")) return;
       data.dailyGoals = data.dailyGoals.filter(x=> x.id !== id);
-      persistAll();
-      render();
+      persistAll(); render();
     };
   });
 
   // data manage
-  elContent.querySelectorAll("[data-action='exportData']").forEach(btn=>{
-    btn.onclick = exportData;
-  });
-  elContent.querySelectorAll("[data-action='importData']").forEach(btn=>{
-    btn.onclick = ()=> document.getElementById("importFile").click();
-  });
-  elContent.querySelectorAll("[data-action='resetAll']").forEach(btn=>{
-    btn.onclick = resetAll;
-  });
+  elContent.querySelectorAll("[data-action='exportData']").forEach(btn=> btn.onclick = exportData);
+  elContent.querySelectorAll("[data-action='importData']").forEach(btn=> btn.onclick = ()=> document.getElementById("importFile").click());
+  elContent.querySelectorAll("[data-action='resetAll']").forEach(btn=> btn.onclick = resetAll);
 
   const importFile = document.getElementById("importFile");
   if(importFile){
@@ -1576,7 +1473,6 @@ function bindDynamicHandlers(){
 /** ========= Counter logic ========= */
 function counterUpdate(key, delta){
   const tKey = todayKey();
-
   if(key.startsWith("long:")){
     const id = key.split(":")[1];
     const g = data.longGoals.find(x=> x.id === id);
@@ -1585,7 +1481,6 @@ function counterUpdate(key, delta){
     persistAll();
     return;
   }
-
   if(key.startsWith("daily:")){
     const id = key.split(":")[1];
     const v = Number(getDailyProgressFor(tKey)?.[id] || 0);
@@ -1595,7 +1490,7 @@ function counterUpdate(key, delta){
   }
 }
 
-/** ========= Focus timer logic (pomodoro version kept) ========= */
+/** ========= Focus Session (same as before) ========= */
 const K_FOCUS_SESSION = "focusSession";
 const DEFAULT_FOCUS_SESSION = {
   status: "idle",
@@ -1738,9 +1633,7 @@ function startTimer(){
     const s = state.focusSession;
     if(!s) return;
 
-    if(checkAwayAutoFail()){
-      return;
-    }
+    if(checkAwayAutoFail()) return;
     if(s.status !== "running") return;
 
     reconcileRunningClock();
@@ -1803,7 +1696,6 @@ function recordPomodoroFail(reason, { auto=false } = {}){
   const s = state.focusSession;
   if(!s) return;
 
-  // idle 不算失敗
   if(s.status === "idle"){
     data.focusMsg = `**未開始不計失敗。** 直接按「開始」。`;
     persistAll();
@@ -1856,7 +1748,7 @@ function abandonTask(){
 /** ========= Export/Import/Reset ========= */
 function exportData(){
   const payload = {
-    version: 3,
+    version: 4,
     exportedAt: new Date().toISOString(),
     data: {
       longGoals: data.longGoals,
@@ -1872,7 +1764,10 @@ function exportData(){
       pomodoroFailed: data.pomodoroFailed,
       dailyLogs: data.dailyLogs,
       apiKey: data.apiKey,
+
       bgURL: data.bgURL,
+      bgMode: data.bgMode,
+
       reportMsg: data.reportMsg,
       analysisTime: data.analysisTime,
       focusMsg: data.focusMsg,
@@ -1907,7 +1802,10 @@ function importDataObj(obj){
   data.pomodoroFailed = Number(d.pomodoroFailed ?? 0) || 0;
   data.dailyLogs = d.dailyLogs || {};
   data.apiKey = d.apiKey || "";
+
   data.bgURL = d.bgURL || DEFAULTS.bgURL;
+  data.bgMode = d.bgMode || "url";
+
   data.reportMsg = d.reportMsg || DEFAULTS.reportMsg;
   data.analysisTime = d.analysisTime || "";
   data.focusMsg = d.focusMsg || DEFAULTS.focusMsg;
@@ -1939,12 +1837,10 @@ function escapeAttr(s){
   return escapeHtml(s).replaceAll("'", "&#39;");
 }
 
-/** ========= Migration (legacy -> new goals) ========= */
+/** ========= Migration ========= */
 function migrateIfNeeded(){
-  // if new exists, do nothing
   if(Array.isArray(data.longGoals) && Array.isArray(data.dailyGoals)) return;
 
-  // build from legacy
   let longGoals = [];
   if(Array.isArray(data.legacyGoals) && data.legacyGoals.length){
     longGoals = data.legacyGoals.map(g=>({
@@ -1958,68 +1854,137 @@ function migrateIfNeeded(){
     longGoals = DEFAULTS.longGoals;
   }
 
-  // daily goals: convert legacy law/vocab as "today progress" (best-effort)
   const dailyGoals = DEFAULTS.dailyGoals.map(x=>({ ...x, id: crypto.randomUUID() }));
 
   data.longGoals = longGoals;
   data.dailyGoals = dailyGoals;
 
-  // map today's progress from legacy values
   const tK = todayKey();
   data.dailyGoalProgress = data.dailyGoalProgress || {};
   if(!data.dailyGoalProgress[tK]) data.dailyGoalProgress[tK] = {};
-  // put legacy into first two daily goals if present
   if(dailyGoals[0]) data.dailyGoalProgress[tK][dailyGoals[0].id] = Number(data.legacyLaw || 0);
   if(dailyGoals[1]) data.dailyGoalProgress[tK][dailyGoals[1].id] = Number(data.legacyVocab || 0);
 
-  // save new
   persistAll();
 }
+
+/** ========= Dialog (你的原專案既有的那段即可；此處假設已存在) ========= */
+const taskDialog = document.getElementById("taskDialog");
+const taskDialogTitle = document.getElementById("taskDialogTitle");
+const taskTitle = document.getElementById("taskTitle");
+const taskStart = document.getElementById("taskStart");
+const taskEnd = document.getElementById("taskEnd");
+const btnSaveTask = document.getElementById("btnSaveTask");
+const btnDeleteTask = document.getElementById("btnDeleteTask");
+const segBtns = Array.from(document.querySelectorAll(".segmented .seg"));
+
+let dialogMode = "add";
+let dialogEditingId = null;
+let dialogType = "Study";
+let dialogDate = null;
+
+function openTaskDialog(mode, dateObj, existing=null){
+  dialogMode = mode;
+  dialogDate = dateObj;
+  dialogEditingId = existing?.id || null;
+
+  if(mode === "add"){
+    taskDialogTitle.textContent = "新增日程規劃";
+    btnDeleteTask.style.display = "none";
+    taskTitle.value = "";
+    dialogType = "Study";
+    taskStart.value = "09:00";
+    taskEnd.value = "10:00";
+  }else{
+    taskDialogTitle.textContent = "編輯日程規劃";
+    btnDeleteTask.style.display = "inline-block";
+    taskTitle.value = existing?.title || "";
+    dialogType = existing?.type || "Study";
+    const st = new Date(existing.date);
+    const et = existing.endTime ? new Date(existing.endTime) : new Date(st.getTime() + 60*60*1000);
+    taskStart.value = fmtTime(st);
+    taskEnd.value = fmtTime(et);
+  }
+
+  segBtns.forEach(b=> b.classList.toggle("active", b.dataset.type === dialogType));
+  taskDialog.showModal();
+}
+segBtns.forEach(b=>{
+  b.onclick = ()=>{
+    dialogType = b.dataset.type;
+    segBtns.forEach(x=> x.classList.toggle("active", x === b));
+  };
+});
+btnSaveTask.onclick = ()=>{
+  const title = taskTitle.value.trim();
+  if(!title) return;
+
+  const st = combineDateTime(dialogDate, taskStart.value || "09:00");
+  const et = combineDateTime(dialogDate, taskEnd.value || "10:00");
+
+  if(dialogMode === "edit" && dialogEditingId){
+    const existing = data.events.find(e=> e.id === dialogEditingId);
+    if(existing){
+      existing.title = title;
+      existing.type = dialogType;
+      existing.date = st.toISOString();
+      existing.endTime = et.toISOString();
+      upsertEvent(existing);
+    }
+  }else{
+    upsertEvent({
+      id: crypto.randomUUID(),
+      title,
+      date: st.toISOString(),
+      endTime: et.toISOString(),
+      type: dialogType,
+      isDone: false,
+    });
+  }
+
+  taskDialog.close();
+  render();
+};
+btnDeleteTask.onclick = ()=>{
+  if(dialogEditingId){
+    deleteEvent(dialogEditingId);
+    taskDialog.close();
+    render();
+  }
+};
 
 /** ========= Init ========= */
 (function init(){
   checkDailyReset();
   normalizeEvents();
-
-  // migrate goals
   migrateIfNeeded();
 
-  // ensure defaults exist if still null
   if(!Array.isArray(data.longGoals)) data.longGoals = DEFAULTS.longGoals;
   if(!Array.isArray(data.dailyGoals)) data.dailyGoals = DEFAULTS.dailyGoals;
   if(!data.dailyGoalProgress) data.dailyGoalProgress = {};
 
-  // theme apply
   applyTheme();
 
-  // focus session init
   state.focusSession = loadFocusSession();
   syncUIFromSession();
 
-  // init timer values from session
   state.totalTime = state.focusSession?.totalTimeSec ?? 1500;
   state.timeLeft = state.focusSession?.timeLeftSec ?? state.totalTime;
 
   persistAll();
 
   if(state.focusSession?.status === "running"){
-    if(checkAwayAutoFail()){
-      // handled
-    }else{
+    if(!checkAwayAutoFail()){
       reconcileRunningClock();
       startTimer();
     }
   }
 
-  // visibility events
   document.addEventListener("visibilitychange", ()=>{
     const s = state.focusSession;
     if(!s) return;
-
     if(document.hidden){
-      if(s.status === "running"){
-        armAway("切到背景");
-      }
+      if(s.status === "running") armAway("切到背景");
     }else{
       if(state.tab === "focus") disarmAway();
       reconcileRunningClock();
@@ -2028,10 +1993,7 @@ function migrateIfNeeded(){
   });
   window.addEventListener("blur", ()=>{
     const s = state.focusSession;
-    if(!s) return;
-    if(s.status === "running"){
-      armAway("視窗失焦");
-    }
+    if(s?.status === "running") armAway("視窗失焦");
   });
   window.addEventListener("focus", ()=>{
     if(state.tab === "focus") disarmAway();
