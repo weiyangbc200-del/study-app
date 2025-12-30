@@ -9,17 +9,19 @@
     <style>
         :root { --cyan-color: #22d3ee; }
         body { background-color: #000; color: #fff; font-family: -apple-system, sans-serif; overflow: hidden; }
-        .bg-img { background-size: cover; background-position: center; position: fixed; inset: 0; z-index: -10; opacity: 0.5; }
+        .bg-img { background-size: cover; background-position: center; position: fixed; inset: 0; z-index: -10; opacity: 0.5; transition: 0.5s; }
         .glass { background: rgba(255, 255, 255, 0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); }
         .tab-active { color: var(--cyan-color); text-shadow: 0 0 10px rgba(34, 211, 238, 0.5); }
-        
-        /* 報告解析樣式 */
         .report-content { line-height: 1.8; color: #e5e7eb; font-size: 0.95rem; white-space: pre-wrap; }
         .report-content b { color: var(--cyan-color); font-weight: bold; }
-        
         textarea, input { background: rgba(0,0,0,0.3) !important; border: 1px solid rgba(255,255,255,0.1) !important; color: white !important; outline: none !important; }
         .no-sb::-webkit-scrollbar { display: none; }
         .progress-ring-circle { transition: stroke-dashoffset 0.3s; transform: rotate(-90deg); transform-origin: 50% 50%; }
+        /* 日曆網格專用樣式 */
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+        .day-cell { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 0.75rem; cursor: pointer; }
+        .day-selected { background-color: rgba(34, 211, 238, 0.6); }
+        .day-today { border: 2px solid var(--cyan-color); }
     </style>
 </head>
 <body class="no-sb">
@@ -31,7 +33,7 @@
 
         <nav class="fixed bottom-0 left-0 right-0 glass rounded-t-3xl border-t border-white/10 flex justify-around py-4 pb-10 bg-black/90">
             <button onclick="tab(0)" id="t0" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-calendar3"></i><span class="text-[10px]">日程</span></button>
-            <button onclick="tab(1)" id="t1" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-timer"></i><span class="text-[10px]">專注</span></button>
+            <button onclick="tab(1)" id="t1" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-timer"></i><span class="text-[10px]">專專</span></button>
             <button onclick="tab(2)" id="t2" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-bar-chart-fill"></i><span class="text-[10px]">看板</span></button>
             <button onclick="tab(3)" id="t3" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-clock-history"></i><span class="text-[10px]">學歷</span></button>
             <button onclick="tab(4)" id="t4" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-gear-wide-connected"></i><span class="text-[10px]">設定</span></button>
@@ -40,7 +42,7 @@
 
     <div id="sheet" class="fixed inset-0 bg-black/80 z-50 hidden flex items-end">
         <div class="glass w-full p-6 rounded-t-3xl border-t border-white/20">
-            <input id="sheet-input" class="w-full p-4 rounded-xl mb-4" placeholder="日程內容...">
+            <input id="sheet-input" class="w-full p-4 rounded-xl mb-4" placeholder="要做什麼？">
             <div class="flex gap-2 mb-6">
                 <button onclick="setSheetType('Study')" id="st-Study" class="flex-1 py-2 rounded-lg border border-white/10 text-xs">讀書</button>
                 <button onclick="setSheetType('Life')" id="st-Life" class="flex-1 py-2 rounded-lg border border-white/10 text-xs">生活</button>
@@ -52,6 +54,7 @@
     </div>
 
     <script>
+        // --- 1. 核心狀態與資料復刻 ---
         let state = {
             tab: 2,
             apiKey: localStorage.getItem('apiKey') || '',
@@ -65,10 +68,8 @@
             dailyLogs: JSON.parse(localStorage.getItem('dailyLogs')) || {},
             done: parseInt(localStorage.getItem('done')) || 0,
             failed: parseInt(localStorage.getItem('failed')) || 0,
-            reflection: '', 
-            reportMsg: '戰略報告準備中...', 
-            focusMsg: '全職考生，你沒有退路。', 
-            time: '', loading: false,
+            selectedDate: new Date(), // 對應 selectedDate
+            reflection: '', reportMsg: '戰略報告準備中...', focusMsg: '全職考生，你沒有退路。', loading: false,
             isActive: false, timeLeft: 1500, totalTime: 1500, focusTask: '',
             editingId: null, sheetType: 'Study'
         };
@@ -80,28 +81,22 @@
             localStorage.setItem('done', state.done); localStorage.setItem('failed', state.failed);
         }
 
-        // --- 核心 AI 邏輯 (1:1 復刻您的 Prompt) ---
+        // --- 2. AI 診斷 (完全保留 Prompt) ---
         async function fetchAI(type, reason = "") {
             if (!state.apiKey) return;
             if (type === 'report') state.loading = true; render();
-            
             const now = new Date();
             const currentTimeStr = now.toLocaleString();
             const todayKey = now.toISOString().split('T')[0].replace(/-/g,'');
-            const todayTasks = state.events.filter(e => e.date.startsWith(todayKey) && e.isDone).map(e => e.title).join(', ');
+            const todayTasks = state.events.filter(e => e.date.startsWith(todayKey) && e.isDone).map(e => e.title).join(',');
 
-            // 歷史校正資料 histLog
-            const getPastKey = (days) => {
-                const d = new Date(); d.setDate(d.getDate() - days);
-                return d.toISOString().split('T')[0].replace(/-/g,'');
-            };
-            const histLog = `昨日：${state.dailyLogs[getPastKey(1)]?.summary || "無"}, 前日：${state.dailyLogs[getPastKey(2)]?.summary || "無"}`;
+            // histLog 生成
+            const getPK = (d) => { const x = new Date(); x.setDate(x.getDate()-d); return x.toISOString().split('T')[0].replace(/-/g,''); };
+            const histLog = `昨日：${state.dailyLogs[getPK(1)]?.summary || "無"}, 前日：${state.dailyLogs[getPK(2)]?.summary || "無"}`;
 
-            let prompt = "";
-            if (type === 'jab') {
-                prompt = `身分：高冷嚴厲教官。分析時間：${currentTimeStr}。任務狀態：${reason}。成功：${state.done}。請給予一句 20 字內的反饋（請使用 Markdown **粗體**）。`;
-            } else {
-                prompt = `【身分】高考全職考生，28歲，之前賺的存款都快花光了。
+            let prompt = type === 'jab' ? 
+            `身分：高冷嚴厲教官。分析時間：${currentTimeStr}。任務狀態：${reason}。成功：${state.done}。請給予一句 20 字內的反饋（請使用 Markdown **粗體**）。` :
+            `【身分】高考全職考生，28歲，之前賺的存款都快花光了。
 【分析當下時間】：${currentTimeStr}
 【今日數據】：完課：${todayTasks}。專注成功：${state.done}。失敗：${state.failed}。
 【使用者本日反思】：${state.reflection || "（無）"}
@@ -117,7 +112,6 @@
 SCORE: [0-100]
 LOG: [50字今日總結]
 CHAR: [性格習性分析，不超過100字]`;
-            }
 
             try {
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${state.apiKey}`, {
@@ -125,111 +119,140 @@ CHAR: [性格習性分析，不超過100字]`;
                 });
                 const data = await res.json();
                 const fullMsg = data.candidates[0].content.parts[0].text;
-                
                 if (type === 'report') {
-                    state.time = currentTimeStr;
                     const comps = fullMsg.split("SCORE:");
                     state.reportMsg = (comps[0] || fullMsg).replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-                    
                     if (comps.length > 1) {
                         const scComp = comps[1].split("LOG:");
-                        const score = parseInt(scComp[0].trim()) || 0;
-                        const logComp = scComp.length > 1 ? scComp[1].split("CHAR:") : [];
-                        const log = logComp[0]?.trim() || "";
-                        const char = logComp.length > 1 ? logComp[1].trim() : "尚無分析資料。";
-                        state.dailyLogs[todayKey] = { score, summary: log, characterAnalysis: char };
-                        state.reflection = '';
+                        const score = parseInt(scComp[0].trim());
+                        const logComp = scComp[1].split("CHAR:");
+                        state.dailyLogs[todayKey] = { score, summary: logComp[0].trim(), characterAnalysis: logComp[1].trim() };
                     }
-                } else {
-                    state.focusMsg = fullMsg.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-                }
+                } else { state.focusMsg = fullMsg.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>'); }
             } catch (e) { console.error(e); }
             state.loading = false; sync(); render();
         }
 
+        // --- 3. AdvancedCalendarView 網格邏輯 ---
+        function renderCalendar() {
+            const date = state.selectedDate;
+            const year = date.getFullYear();
+            const month = date.getMonth();
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const today = new Date();
+            
+            let html = `
+                <div class="flex justify-between items-center px-4 mb-4">
+                    <button onclick="changeMonth(-1)"><i class="bi bi-chevron-left-circle-fill"></i></button>
+                    <span class="font-bold">${year}年 ${month + 1}月</span>
+                    <button onclick="changeMonth(1)"><i class="bi bi-chevron-right-circle-fill"></i></button>
+                </div>
+                <div class="calendar-grid mb-4 opacity-50 text-[10px] uppercase font-bold">
+                    <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+                </div>
+                <div class="calendar-grid">`;
+            
+            for (let i = 0; i < firstDay; i++) html += `<div></div>`;
+            for (let d = 1; d <= daysInMonth; d++) {
+                const isSelected = date.getDate() === d;
+                const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === d;
+                html += `<div onclick="selectDay(${d})" class="day-cell ${isSelected?'day-selected':''} ${isToday?'day-today':''}">${d}</div>`;
+            }
+            html += `</div>`;
+            return html;
+        }
+
+        // --- 4. 主要視圖渲染 ---
         function render() {
             document.getElementById('main-bg').style.backgroundImage = `url('${state.bgURL}')`;
             const view = document.getElementById('view-builder');
-            const todayKey = new Date().toISOString().split('T')[0].replace(/-/g,'');
+            const selKey = state.selectedDate.toISOString().split('T')[0].replace(/-/g,'');
 
-            if (state.tab === 2) { // 看板
+            if (state.tab === 0) { // 日程 (AdvancedCalendarView)
                 view.innerHTML = `
-                    <h1 class="text-3xl font-black italic mb-6">戰力診斷中心</h1>
-                    <textarea oninput="state.reflection=this.value" class="w-full p-4 rounded-2xl h-24 text-sm mb-4 glass" placeholder="報告今天的心情...">${state.reflection}</textarea>
-                    <div class="glass p-5 mb-6 border-l-4 border-cyan-400">
-                        <div class="flex justify-between text-[10px] text-gray-500 mb-2"><span>學習診斷報告</span><span>${state.time}</span></div>
-                        <div class="report-content">${state.loading ? '正在計算勝率...' : state.reportMsg}</div>
-                    </div>
-                    <div class="glass p-5 mb-6 space-y-4">
-                        ${state.goals.map((g,i) => `
-                            <div class="flex justify-between text-sm items-center"><span>${g.subject}</span><div class="flex items-center gap-4"><button onclick="addGoal(${i},-1)">-</button><span class="w-14 text-center font-bold text-cyan-400">${g.completed}/${g.total}</span><button onclick="addGoal(${i},1)">+</button></div></div>
+                    <div class="glass p-4 rounded-2xl mb-6">${renderCalendar()}</div>
+                    <div class="space-y-3">
+                        ${state.events.filter(e => e.date.startsWith(selKey)).map(e => `
+                            <div class="glass p-4 rounded-xl flex items-center gap-4">
+                                <i onclick="toggleDone('${e.id}')" class="bi ${e.isDone?'bi-check-circle-fill text-green-400':'bi-circle text-gray-500'} text-xl"></i>
+                                <div class="flex-1" onclick="openSheet('${e.id}')">
+                                    <p class="font-bold ${e.isDone?'line-through text-gray-500':''}">${e.title}</p>
+                                </div>
+                            </div>
                         `).join('')}
-                        <div class="border-t border-white/5 pt-4 flex justify-between text-sm items-center"><span>法學緒論</span><div class="flex items-center gap-4"><button onclick="addLaw(-25)">-</button><span class="w-14 text-center font-bold text-cyan-400">${state.law}/100</span><button onclick="addLaw(25)">+</button></div></div>
                     </div>
-                    <button onclick="fetchAI('report')" class="w-full py-5 bg-cyan-600/50 rounded-2xl font-black transition-all active:scale-95">提交反思並產出戰術報告</button>
+                    <button onclick="openSheet(null)" class="w-full py-5 border-2 border-dashed border-white/10 rounded-2xl mt-10 text-gray-500 font-bold">+ 新增日程規劃</button>
                 `;
             }
-            else if (state.tab === 1) { // 專注
+            else if (state.tab === 1) { // 專專 (FocusTimerView)
                 const offset = 283 - (state.timeLeft / state.totalTime) * 283;
                 view.innerHTML = `
                     <div class="flex flex-col items-center pt-10">
-                        <h2 class="text-xl font-bold mb-8 italic">專注模式</h2>
-                        <input id="f-task" class="w-full text-center p-4 rounded-xl mb-10 glass" placeholder="現在要做什麼？" value="${state.focusTask}">
-                        <div class="relative w-64 h-64 flex items-center justify-center mb-10">
+                        <input id="f-task" class="w-full text-center p-4 rounded-xl mb-12 glass" placeholder="現在要做什麼？" value="${state.focusTask}">
+                        <div class="relative w-64 h-64 flex items-center justify-center mb-8">
                             <svg class="absolute inset-0 w-full h-full" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="4"/><circle class="progress-ring-circle" cx="50" cy="50" r="45" fill="none" stroke="#22d3ee" stroke-width="4" stroke-dasharray="283" stroke-dashoffset="${offset}" stroke-linecap="round"/></svg>
                             <span class="text-6xl font-mono font-bold">${Math.floor(state.timeLeft/60)}:${String(state.timeLeft%60).padStart(2,'0')}</span>
                         </div>
-                        <div class="text-cyan-400 italic text-center px-10 h-12 mb-8 report-content">${state.focusMsg}</div>
+                        <div class="report-content text-cyan-400 italic text-center px-10 mb-10 h-10">${state.focusMsg}</div>
                         <div class="flex gap-10 items-center">
-                            <button onclick="adjT(-300)" class="text-gray-500 font-bold">-5</button>
-                            <button onclick="toggleFocus()" class="bg-cyan-600 w-16 h-16 rounded-full flex items-center justify-center text-2xl shadow-lg"><i class="bi ${state.isActive ? 'bi-pause-fill' : 'bi-play-fill'}"></i></button>
-                            <button onclick="adjT(300)" class="text-gray-500 font-bold">+5</button>
+                            <button onclick="adjT(-300)" class="bi bi-minus-circle text-2xl text-gray-500"></button>
+                            <button onclick="toggleFocus()" class="bg-cyan-600 px-10 py-3 rounded-xl font-bold">${state.isActive?'暫停':'開始'}</button>
+                            <button onclick="adjT(300)" class="bi bi-plus-circle text-2xl text-gray-500"></button>
                         </div>
-                        <button onclick="abandon()" class="mt-12 text-red-500/40 text-xs font-bold tracking-widest">放棄專注</button>
+                        <button onclick="abandon()" class="mt-12 text-red-500 opacity-40 text-xs font-bold">放棄</button>
                     </div>
                 `;
             }
-            else if (state.tab === 0) { // 日程
-                view.innerHTML = `<h2 class="text-2xl font-bold mb-6 italic">戰術日程</h2><div class="space-y-4">
-                    ${state.events.filter(e => e.date.startsWith(todayKey)).map((e, i) => `
-                        <div class="glass p-4 rounded-2xl flex items-center gap-4">
-                            <div onclick="toggleDone('${e.id}')"><i class="bi ${e.isDone ? 'bi-check-circle-fill text-green-400' : 'bi-circle text-gray-500'} text-2xl"></i></div>
-                            <div class="flex-1" onclick="openSheet('${e.id}')"><p class="font-bold ${e.isDone ? 'line-through text-gray-500' : ''}">${e.title}</p></div>
-                        </div>
-                    `).join('')}
-                </div><button onclick="openSheet(null)" class="w-full py-5 border-2 border-dashed border-white/10 rounded-2xl mt-10 text-gray-500 font-bold">+ 加入新日程</button>`;
+            else if (state.tab === 2) { // 看板 (UnifiedDashboardView)
+                view.innerHTML = `
+                    <h1 class="text-2xl font-bold mb-6">戰力診斷中心</h1>
+                    <textarea oninput="state.reflection=this.value" class="w-full p-4 rounded-2xl h-24 text-sm mb-6 glass" placeholder="向教官報告今天的心情或反省...">${state.reflection}</textarea>
+                    <div class="glass p-5 mb-8 border-l-4 border-cyan-400">
+                        <div class="flex justify-between text-[10px] text-gray-500 mb-2 font-mono"><span>學習診斷報告</span><span>${state.time}</span></div>
+                        <div class="report-content">${state.loading ? '正在計算勝率...' : state.reportMsg}</div>
+                    </div>
+                    <div class="glass p-5 mb-8 space-y-4">
+                        ${state.goals.map((g,i) => `<div class="flex justify-between text-sm items-center"><span>${g.subject}</span><div class="flex items-center gap-4"><button onclick="addGoal(${i},-1)">-</button><span class="w-14 text-center font-mono font-bold text-cyan-400">${g.completed}/${g.total}</span><button onclick="addGoal(${i},1)">+</button></div></div>`).join('')}
+                        <div class="flex justify-between text-sm items-center border-t border-white/5 pt-4"><span>法學緒論</span><div class="flex items-center gap-4"><button onclick="addLaw(-25)">-</button><span class="w-14 text-center font-mono font-bold text-cyan-400">${state.law}/100</span><button onclick="addLaw(25)">+</button></div></div>
+                    </div>
+                    <button onclick="fetchAI('report')" class="w-full py-4 bg-cyan-600/50 rounded-xl font-bold transition-all">產出戰術報告</button>
+                `;
             }
-            else if (state.tab === 3) { // 學歷
-                const log = state.dailyLogs[todayKey];
-                view.innerHTML = `<h2 class="text-2xl font-bold mb-8 italic">學習與性格履歷</h2>`;
-                if (log) {
-                    view.innerHTML += `
+            else if (state.tab === 3) { // 學歷 (HistoryLogView)
+                const log = state.dailyLogs[selKey];
+                view.innerHTML = `
+                    <div class="glass p-4 rounded-2xl mb-6">${renderCalendar()}</div>
+                    ${log ? `
                         <div class="glass p-6 mb-6">
-                            <div class="flex justify-between items-center mb-6"><span class="text-gray-400 font-bold text-xs uppercase">本日評分</span><span class="text-4xl font-black text-green-400">${log.score}</span></div>
-                            <div class="text-sm space-y-4">
-                                <div><p class="text-gray-500 text-[10px] font-bold mb-1 uppercase">【總結】</p><p class="text-gray-200">${log.summary}</p></div>
-                                <div class="italic text-cyan-200/60"><p class="text-gray-500 text-[10px] font-bold mb-1 uppercase">【性格分析】</p><p>${log.characterAnalysis}</p></div>
-                            </div>
-                        </div>`;
-                } else { view.innerHTML += `<p class="text-center text-gray-600 py-20 italic">本日尚無診斷數據</p>`; }
+                            <div class="flex justify-between items-center mb-6"><span class="text-gray-400 font-bold">教官評分</span><span class="text-3xl font-black text-green-400">${log.score}</span></div>
+                            <p class="text-sm text-gray-200 mb-4 font-bold">【總結】</p><p class="text-sm text-gray-400 mb-6">${log.summary}</p>
+                            <p class="text-sm text-gray-200 mb-4 font-bold">【性格分析】</p><p class="text-sm italic text-cyan-200/60">${log.characterAnalysis}</p>
+                            <hr class="border-white/5 my-6">
+                            <p class="text-[10px] text-gray-500 uppercase mb-4 font-bold">本日時間軸</p>
+                            ${state.events.filter(e=>e.date.startsWith(selKey)).map(e=>`<div class="flex justify-between text-xs mb-2"><span>${e.title}</span><span>${e.isDone?'✅':'❌'}</span></div>`).join('')}
+                        </div>
+                    ` : '<p class="text-center text-gray-500 py-10 italic">選取日期尚無資料</p>'}
+                `;
             }
             else if (state.tab === 4) { // 設定
-                view.innerHTML = `<h2 class="text-2xl font-bold mb-10 italic">設定</h2><div class="space-y-8"><div><label class="text-[10px] text-gray-500 uppercase font-bold mb-2 block">GEMINI API KEY</label><input type="password" onchange="state.apiKey=this.value;sync()" class="w-full p-4 glass rounded-xl" value="${state.apiKey}"></div><div><label class="text-[10px] text-gray-500 uppercase font-bold mb-2 block">背景圖片 URL</label><input onchange="state.bgURL=this.value;sync();render()" class="w-full p-4 glass rounded-xl text-xs" value="${state.bgURL}"></div></div>`;
+                view.innerHTML = `<h2 class="text-xl font-bold mb-10">設定</h2><div class="space-y-8"><div><label class="text-[10px] text-gray-500 mb-2 block">API KEY</label><input type="password" onchange="state.apiKey=this.value;sync()" class="w-full p-4 glass rounded-xl font-mono" value="${state.apiKey}"></div><div><label class="text-[10px] text-gray-500 mb-2 block">背景 URL</label><input onchange="state.bgURL=this.value;sync();render()" class="w-full p-4 glass rounded-xl text-xs" value="${state.bgURL}"></div></div>`;
             }
-
-            for(let i=0; i<5; i++) document.getElementById('t'+i).className = `flex flex-col items-center gap-1 ${state.tab===i?'tab-active':'text-gray-600'}`;
+            for(let i=0; i<5; i++) document.getElementById('t'+i).className = `flex flex-col items-center gap-1 transition-all ${state.tab===i?'tab-active':'text-gray-500'}`;
         }
 
-        // --- 控制邏輯 ---
+        // --- 5. 互動邏輯 ---
         function tab(i) { if(state.isActive && i!==1) abandon(); state.tab=i; render(); }
+        function changeMonth(v) { state.selectedDate.setMonth(state.selectedDate.getMonth() + v); render(); }
+        function selectDay(d) { state.selectedDate.setDate(d); render(); }
         function addGoal(i, v) { state.goals[i].completed = Math.max(0, state.goals[i].completed + v); sync(); render(); }
         function addLaw(v) { state.law = Math.max(0, Math.min(100, state.law + v)); sync(); render(); }
-        function openSheet(id) { state.editingId = id; const sheet = document.getElementById('sheet'); sheet.classList.remove('hidden'); if(id) { const e = state.events.find(ev => ev.id === id); document.getElementById('sheet-input').value = e.title; setSheetType(e.type); } }
+        function toggleDone(id) { const idx = state.events.findIndex(e=>e.id===id); state.events[idx].isDone = !state.events[idx].isDone; sync(); render(); }
+        function openSheet(id) { state.editingId = id; document.getElementById('sheet').classList.remove('hidden'); if(id) { const e = state.events.find(ev=>ev.id===id); document.getElementById('sheet-input').value = e.title; setSheetType(e.type); document.getElementById('sheet-del').classList.remove('hidden'); } else { document.getElementById('sheet-input').value = ""; setSheetType('Study'); document.getElementById('sheet-del').classList.add('hidden'); } }
         function closeSheet() { document.getElementById('sheet').classList.add('hidden'); }
         function setSheetType(t) { state.sheetType = t; document.getElementById('st-Study').className = `flex-1 py-2 rounded-lg border text-xs ${t==='Study'?'bg-blue-600 border-blue-400':'border-white/10 text-gray-500'}`; document.getElementById('st-Life').className = `flex-1 py-2 rounded-lg border text-xs ${t==='Life'?'bg-orange-600 border-orange-400':'border-white/10 text-gray-500'}`; }
-        function saveSheet() { const title = document.getElementById('sheet-input').value; if(!title) return; if(state.editingId) { const idx = state.events.findIndex(e => e.id === state.editingId); state.events[idx].title = title; state.events[idx].type = state.sheetType; } else { const d = new Date().toISOString().replace(/\D/g,'').slice(0,12); state.events.unshift({id: Math.random().toString(), title, date: d, type: state.sheetType, isDone: false}); } sync(); closeSheet(); render(); }
-        function deleteSheet() { state.events = state.events.filter(e => e.id !== state.editingId); sync(); closeSheet(); render(); }
-        function toggleDone(id) { const idx = state.events.findIndex(e => e.id === id); state.events[idx].isDone = !state.events[idx].isDone; sync(); render(); }
+        function saveSheet() { const title = document.getElementById('sheet-input').value; if(!title) return; if(state.editingId) { const idx = state.events.findIndex(e=>e.id===state.editingId); state.events[idx].title = title; state.events[idx].type = state.sheetType; } else { const d = state.selectedDate.toISOString().split('T')[0].replace(/-/g,'') + "0000"; state.events.unshift({id: Math.random().toString(), title, date: d, type: state.sheetType, isDone: false}); } sync(); closeSheet(); render(); }
+        function deleteSheet() { state.events = state.events.filter(e=>e.id!==state.editingId); sync(); closeSheet(); render(); }
 
         let timer;
         function toggleFocus() { 
@@ -238,10 +261,7 @@ CHAR: [性格習性分析，不超過100字]`;
             if(state.isActive) { 
                 timer = setInterval(() => { 
                     if(state.timeLeft > 0) { state.timeLeft--; render(); } 
-                    else { 
-                        clearInterval(timer); state.isActive=false; state.done++; state.timeLeft=state.totalTime; 
-                        fetchAI('jab', "任務達成："+state.focusTask); sync(); render(); 
-                    } 
+                    else { clearInterval(timer); state.isActive=false; state.done++; state.timeLeft=state.totalTime; fetchAI('jab', "達成任務"); sync(); render(); }
                 }, 1000); 
             } else clearInterval(timer); 
             render(); 
@@ -249,9 +269,9 @@ CHAR: [性格習性分析，不超過100字]`;
         function adjT(v) { if(!state.isActive) { state.totalTime = Math.max(60, state.totalTime + v); state.timeLeft = state.totalTime; render(); } }
         function abandon() { 
             clearInterval(timer); state.isActive = false; state.failed++; 
-            state.events.unshift({id: Math.random().toString(), title: state.focusTask || "未命名任務", date: new Date().toISOString().replace(/\D/g,'').slice(0,12), type: 'Study', isDone: false});
-            state.timeLeft = state.totalTime; 
-            fetchAI('jab', "任務失敗："+state.focusTask); sync(); render(); 
+            const d = new Date().toISOString().replace(/\D/g,'').slice(0,12);
+            state.events.unshift({id: Math.random().toString(), title: state.focusTask || "未命名任務", date: d, type: 'Study', isDone: false});
+            state.timeLeft = state.totalTime; fetchAI('jab', "放棄任務"); sync(); render(); 
         }
 
         render();
