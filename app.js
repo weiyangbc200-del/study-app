@@ -666,20 +666,18 @@ function renderCalendar(){
         <button class="btn primary" data-action="addTask">＋ 新增</button>
       </div>
 
-      <div style="margin-top:12px; display:flex; gap:10px;">
-        <div class="card" style="margin:0; padding:12px; flex:1; background:var(--glass2)">
-          <div class="small">起床</div>
-          <input class="input mono" id="wakeInput" value="${data.wakeTime}" />
-        </div>
-        <div class="card" style="margin:0; padding:12px; flex:1; background:var(--glass2)">
-          <div class="small">睡覺</div>
-          <input class="input mono" id="sleepInput" value="${data.sleepTime}" />
-        </div>
-      </div>
+        <div class="grid2" style="margin-top:12px;">
+          <button class="btn primary" data-action="markWake">
+            起床（按下記錄現在）：<span class="mono">${escapeHtml(data.wakeTime || "--:--")}</span>
+          </button>
 
-      <div style="margin-top:12px; display:flex; gap:10px;">
-        <button class="btn" data-action="saveWakeSleep">儲存起床/睡覺</button>
-      </div>
+          <button class="btn" data-action="markSleep">
+            睡覺（按下記錄現在）：<span class="mono">${escapeHtml(data.sleepTime || "--:--")}</span>
+          </button>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          會以你按下按鈕的當下時間直接覆蓋記錄。
+        </div>
 
       <div style="margin-top:14px; display:flex; flex-direction:column; gap:10px;">
         ${tasksHtml}
@@ -1162,16 +1160,22 @@ function bindDynamicHandlers(){
   elContent.querySelectorAll("[data-action='addTask']").forEach(btn=>{
     btn.onclick = ()=> openTaskDialog("add", state.selectedDate);
   });
-  const wakeInput = elContent.querySelector("#wakeInput");
-  const sleepInput = elContent.querySelector("#sleepInput");
-  const saveWakeSleepBtn = elContent.querySelector("[data-action='saveWakeSleep']");
-  if(saveWakeSleepBtn && wakeInput && sleepInput){
-    saveWakeSleepBtn.onclick = ()=>{
-      data.wakeTime = wakeInput.value || data.wakeTime;
-      data.sleepTime = sleepInput.value || data.sleepTime;
-      persistAll(); render();
+   // 起床 / 睡覺：按下即記錄當下時間
+  elContent.querySelectorAll("[data-action='markWake']").forEach(btn=>{
+    btn.onclick = ()=>{
+      data.wakeTime = fmtTime(new Date());
+      persistAll();
+      render();
     };
-  }
+  });
+
+  elContent.querySelectorAll("[data-action='markSleep']").forEach(btn=>{
+    btn.onclick = ()=>{
+      data.sleepTime = fmtTime(new Date());
+      persistAll();
+      render();
+    };
+  });
 
   // task interactions
   elContent.querySelectorAll("[data-action='toggleDone']").forEach(btn=>{
