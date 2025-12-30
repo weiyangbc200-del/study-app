@@ -1,6 +1,14 @@
 :root{
   --accent:#00e5ff;
   --accent2: rgba(0,229,255,0.35);
+
+  /* 下面這些是為了把原本散落的 rgba(0,229,255,0.xx) 統一變成變數 */
+  --accentSoft: rgba(0,229,255,0.10);
+  --accentBg: rgba(0,229,255,0.22);
+  --accentBorder: rgba(0,229,255,0.32);
+  --accentRing: rgba(0,229,255,0.75);
+  --accentOverlay: rgba(0,229,255,0.08);
+
   --text:#f2f4f7;
   --muted: rgba(242,244,247,0.62);
   --hair: rgba(255,255,255,0.10);
@@ -39,7 +47,7 @@ body{
 }
 #bgOverlay{
   position:fixed; inset:0;
-  background: radial-gradient(1200px 800px at 50% 15%, rgba(0,229,255,0.08), transparent 55%),
+  background: radial-gradient(1200px 800px at 50% 15%, var(--accentOverlay), transparent 55%),
               linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.72));
   z-index:-2;
 }
@@ -130,8 +138,8 @@ body{
 }
 
 .input:focus, .textarea:focus{
-  border-color: rgba(0,229,255,0.35);
-  box-shadow: 0 0 0 3px rgba(0,229,255,0.10);
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 3px var(--accentSoft);
 }
 
 .textarea{
@@ -151,8 +159,8 @@ body{
 }
 .btn:active{ transform: scale(0.98); }
 .btn.primary{
-  border-color: rgba(0,229,255,0.32);
-  background: rgba(0,229,255,0.22);
+  border-color: var(--accentBorder);
+  background: var(--accentBg);
   font-weight:900;
 }
 .btn.danger{
@@ -180,6 +188,12 @@ body{
 }
 .pill.study{ border-color: rgba(80,150,255,0.22); color:#cfe2ff; background: rgba(80,150,255,0.14); }
 .pill.life{ border-color: rgba(255,160,60,0.22); color:#ffe1c2; background: rgba(255,160,60,0.12); }
+.pill.accent{
+  border-color: var(--accentBorder);
+  color: var(--accent);
+  background: rgba(255,255,255,0.05);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+}
 
 .calendar-grid{
   display:grid;
@@ -208,10 +222,10 @@ body{
 }
 .day:active{ transform: scale(0.98); }
 .day.empty{ background:transparent; border:0; cursor:default; }
-.day.today{ border-color: rgba(0,229,255,0.75); }
+.day.today{ border-color: var(--accentRing); }
 .day.selected{
-  background: rgba(0,229,255,0.22);
-  border-color: rgba(0,229,255,0.25);
+  background: var(--accentBg);
+  border-color: var(--accentBorder);
   font-weight:900;
 }
 
@@ -264,8 +278,8 @@ body{
 }
 .iconbtn:active{ transform: scale(0.98); }
 .iconbtn.play{
-  border-color: rgba(0,229,255,0.26);
-  background: rgba(0,229,255,0.10);
+  border-color: var(--accentBorder);
+  background: rgba(255,255,255,0.04);
   color: var(--accent);
 }
 
@@ -348,7 +362,8 @@ body{
 
 .tab.active{
   color: var(--accent);
-  background: rgba(0,229,255,0.10);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
 }
 
 /* ===== Dialog (Add/Edit) ===== */
@@ -380,8 +395,9 @@ body{
   cursor:pointer;
 }
 .seg.active{
-  background: rgba(0,229,255,0.14);
-  border-color: rgba(0,229,255,0.24);
+  background: rgba(255,255,255,0.06);
+  border-color: var(--accentBorder);
+  box-shadow: 0 0 0 3px var(--accentSoft);
   font-weight:900;
 }
 
