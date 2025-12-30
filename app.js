@@ -334,8 +334,18 @@ async function fetchFocusJab(reason){
   try{
     const now = new Date();
     const timeStr = now.toLocaleString("zh-TW", { hour12:false });
+
+    const done = Number(data.pomodoroDone || 0);
+    const fail = Number(data.pomodoroFailed || 0);
+    const total = done + fail;
+    const winRate = total > 0 ? Math.round((done / total) * 100) : 0;
+
     const prompt =
-      `身分：高冷嚴厲教官。分析時間：${timeStr}。任務狀態：${reason}。成功：${data.pomodoroDone}。請給一句 20 字內反饋（Markdown **粗體**）。`;
+      `身分：以一位高冷嚴厲教官面對一個準備考試的學生。分析時間：${timeStr}。\n` +
+      `任務狀態：${reason}。\n` +
+      `番茄鐘：成功 ${done}、失敗 ${fail}、勝率 ${winRate}%（今日）。\n` +
+      `請給一句 20 字內反饋（Markdown **粗體**）。`;
+
     const msg = await geminiGenerate(prompt);
     data.focusMsg = msg || data.focusMsg;
     persistAll();
@@ -1709,6 +1719,7 @@ function toggleFocus(){
     disarmAway();
     saveFocusSession();
     syncUIFromSession();
+    fetchFocusJab(`開始任務：${taskTitle}`);
     startTimer();
     render();
     return;
