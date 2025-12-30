@@ -2,13 +2,24 @@
  *  戰力診斷系統 Web版
  *  - GitHub Pages 可直接跑
  *  - 資料存 localStorage
+ *
+ *  ✅ 目標系統：
+ *   - 長期目標（含截止日）：行政學/政治學...
+ *   - 每日目標（每日刷新）：刷題/背單字...
+ *   - 全部可在 Settings 自訂新增/編輯/刪除
+ *
+ *  ✅ 主色調 Theme：
+ *   - 使用者可自選 accent 色（套用到 CSS 變數 --cyan）
+ *   - 可嘗試「從背景抓平均色」做自動配色（可能遇到跨域限制）
  ************************/
 
 /** ========= Storage Keys ========= */
 const K = {
+  // legacy
   goals: "goals",
   law: "lawScore",
   vocab: "vocabCount",
+
   wake: "wakeTime",
   sleep: "sleepTime",
   events: "events",
@@ -21,29 +32,45 @@ const K = {
   reportMsg: "reportMsg",
   analysisTime: "analysisTime",
   focusMsg: "focusMsg",
+
+  // new goal system
+  longGoals: "longGoals",
+  dailyGoals: "dailyGoals",
+  dailyGoalProgress: "dailyGoalProgress", // {YYYYMMDD: {goalId: number}}
+  examDate: "examDate", // used for D- counter (user-settable)
+
+  // theme
+  theme: "theme", // {accent:"#00e5ff", mode:"manual"|"auto"}
 };
 
 /** ========= Default Data ========= */
 const DEFAULTS = {
-  goals: [
-    { id: crypto.randomUUID(), subject: "行政法", total: 50, completed: 0 },
-    { id: crypto.randomUUID(), subject: "政治學", total: 30, completed: 0 },
-    { id: crypto.randomUUID(), subject: "行政學", total: 40, completed: 0 },
-    { id: crypto.randomUUID(), subject: "公共政策", total: 20, completed: 0 },
+  longGoals: [
+    { id: crypto.randomUUID(), title: "行政法", total: 50, completed: 0, deadline: "2026-01-31" },
+    { id: crypto.randomUUID(), title: "政治學", total: 30, completed: 0, deadline: "2026-01-31" },
+    { id: crypto.randomUUID(), title: "行政學", total: 40, completed: 0, deadline: "2026-01-31" },
+    { id: crypto.randomUUID(), title: "公共政策", total: 20, completed: 0, deadline: "2026-01-31" },
   ],
-  lawScore: 0,
-  vocabCount: 0,
+  dailyGoals: [
+    { id: crypto.randomUUID(), title: "法學緒論刷題", target: 100, step: 25, unit: "題" },
+    { id: crypto.randomUUID(), title: "英文刷題", target: 100, step: 10, unit: "題" },
+  ],
+  dailyGoalProgress: {},
+
   wakeTime: "07:00",
   sleepTime: "23:30",
   events: [],
   pomodoroDone: 0,
   pomodoroFailed: 0,
-  dailyLogs: {}, // {YYYYMMDD: {score, summary, characterAnalysis}}
+  dailyLogs: {}, // {YYYYMMDD: {score, summary, characterAnalysis, goalSnapshot?}}
   apiKey: "",
   bgURL: "https://images.unsplash.com/photo-1542051841857-5f90071e7989?q=80&w=2070",
   reportMsg: "戰略報告準備中...",
   analysisTime: "",
   focusMsg: "全職考生，你沒有退路。",
+
+  examDate: "2026-01-31",
+  theme: { accent: "#00e5ff", mode: "manual" },
 };
 
 /** ========= App State ========= */
@@ -52,6 +79,7 @@ const state = {
   selectedDate: new Date(),
   reflection: "",
   activeTaskFromSchedule: "",
+
   // timer
   isFocusing: false,
   totalTime: 1500,
@@ -60,6 +88,9 @@ const state = {
   focusStartTime: null,
   focusTaskName: "",
   isReportLoading: false,
+
+  // persistent focus session
+  focusSession: null,
 };
 
 /** ========= Load / Save ========= */
@@ -83,12 +114,16 @@ function loadNum(key, fallback=0){
 }
 
 const data = {
-  goals: loadJSON(K.goals, DEFAULTS.goals),
-  lawScore: loadNum(K.law, DEFAULTS.lawScore),
-  vocabCount: loadNum(K.vocab, DEFAULTS.vocabCount),
+  // NEW goal system
+  longGoals: loadJSON(K.longGoals, null),
+  dailyGoals: loadJSON(K.dailyGoals, null),
+  dailyGoalProgress: loadJSON(K.dailyGoalProgress, DEFAULTS.dailyGoalProgress),
+  examDate: loadStr(K.examDate, DEFAULTS.examDate),
+
+  // rest
   wakeTime: loadStr(K.wake, DEFAULTS.wakeTime),
   sleepTime: loadStr(K.sleep, DEFAULTS.sleepTime),
-  events: loadJSON(K.events, DEFAULTS.events), // store ISO strings
+  events: loadJSON(K.events, DEFAULTS.events),
   pomodoroDone: loadNum(K.done, DEFAULTS.pomodoroDone),
   pomodoroFailed: loadNum(K.failed, DEFAULTS.pomodoroFailed),
   dailyLogs: loadJSON(K.dailyLogs, DEFAULTS.dailyLogs),
@@ -97,23 +132,36 @@ const data = {
   reportMsg: loadStr(K.reportMsg, DEFAULTS.reportMsg),
   analysisTime: loadStr(K.analysisTime, DEFAULTS.analysisTime),
   focusMsg: loadStr(K.focusMsg, DEFAULTS.focusMsg),
+
+  theme: loadJSON(K.theme, DEFAULTS.theme),
+
+  // legacy for migration
+  legacyGoals: loadJSON(K.goals, null),
+  legacyLaw: loadNum(K.law, 0),
+  legacyVocab: loadNum(K.vocab, 0),
 };
 
 function persistAll(){
-  saveJSON(K.goals, data.goals);
-  localStorage.setItem(K.law, String(data.lawScore));
-  localStorage.setItem(K.vocab, String(data.vocabCount));
+  saveJSON(K.longGoals, data.longGoals);
+  saveJSON(K.dailyGoals, data.dailyGoals);
+  saveJSON(K.dailyGoalProgress, data.dailyGoalProgress);
+  localStorage.setItem(K.examDate, data.examDate);
+
   localStorage.setItem(K.wake, data.wakeTime);
   localStorage.setItem(K.sleep, data.sleepTime);
   saveJSON(K.events, data.events);
+
   localStorage.setItem(K.done, String(data.pomodoroDone));
   localStorage.setItem(K.failed, String(data.pomodoroFailed));
   saveJSON(K.dailyLogs, data.dailyLogs);
+
   localStorage.setItem(K.apiKey, data.apiKey);
   localStorage.setItem(K.bgURL, data.bgURL);
   localStorage.setItem(K.reportMsg, data.reportMsg);
   localStorage.setItem(K.analysisTime, data.analysisTime);
   localStorage.setItem(K.focusMsg, data.focusMsg);
+
+  saveJSON(K.theme, data.theme);
 }
 
 /** ========= Date Helpers ========= */
@@ -136,7 +184,6 @@ function daysInMonth(d){
   return new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
 }
 function firstWeekdayOfMonth(d){
-  // Sunday = 0
   return startOfMonth(d).getDay();
 }
 function addMonths(d, delta){
@@ -160,6 +207,20 @@ function fmtDateHuman(key){
   if(!key || key.length!==8) return key;
   return `${key.slice(0,4)}/${key.slice(4,6)}/${key.slice(6,8)}`;
 }
+function parseISODateOnly(yyyy_mm_dd){
+  // safe local date (no timezone shift)
+  const [y,m,d] = (yyyy_mm_dd || "").split("-").map(Number);
+  if(!y || !m || !d) return null;
+  return new Date(y, m-1, d, 0,0,0,0);
+}
+function daysUntil(yyyy_mm_dd){
+  const target = parseISODateOnly(yyyy_mm_dd);
+  if(!target) return null;
+  const today = new Date();
+  const base = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0,0,0,0);
+  const diff = Math.ceil((target - base) / (1000*60*60*24));
+  return diff;
+}
 
 /** ========= Daily reset (pomodoro counts) ========= */
 function checkDailyReset(){
@@ -175,11 +236,10 @@ function checkDailyReset(){
 
 /** ========= Events helpers ========= */
 function normalizeEvents(){
-  // ensure fields exist; keep ISO strings
   data.events = (data.events || []).map(e => ({
     id: e.id || crypto.randomUUID(),
     title: e.title || "未命名任務",
-    date: e.date,          // ISO
+    date: e.date,
     endTime: e.endTime || null,
     type: e.type || "Study",
     isDone: !!e.isDone,
@@ -251,6 +311,51 @@ async function fetchFocusJab(reason){
   }
 }
 
+/** ========= Goal helpers ========= */
+function todayKey(){
+  return dateKey(new Date());
+}
+function getDailyProgressFor(dateK){
+  return data.dailyGoalProgress?.[dateK] || {};
+}
+function getTodayDailyProgress(){
+  return getDailyProgressFor(todayKey());
+}
+function setDailyProgress(dateK, goalId, value){
+  if(!data.dailyGoalProgress) data.dailyGoalProgress = {};
+  if(!data.dailyGoalProgress[dateK]) data.dailyGoalProgress[dateK] = {};
+  data.dailyGoalProgress[dateK][goalId] = Math.max(0, Number(value || 0));
+  saveJSON(K.dailyGoalProgress, data.dailyGoalProgress);
+}
+
+/** ========= Dashboard report input builder ========= */
+function buildGoalStatusText(){
+  const tKey = todayKey();
+  const dp = getDailyProgressFor(tKey);
+
+  const dailyLines = (data.dailyGoals || []).map(g=>{
+    const v = Number(dp?.[g.id] || 0);
+    const target = Number(g.target || 0);
+    const pct = target > 0 ? Math.min(100, Math.round((v/target)*100)) : 0;
+    return `- ${g.title}：${v}/${target}${g.unit||""}（${pct}%）`;
+  }).join("\n");
+
+  const longLines = (data.longGoals || []).map(g=>{
+    const total = Number(g.total || 0);
+    const done = Number(g.completed || 0);
+    const ddl = g.deadline || data.examDate || "";
+    const left = daysUntil(ddl);
+    const pct = total > 0 ? Math.min(100, Math.round((done/total)*100)) : 0;
+    const leftText = (left === null) ? "（無截止日）" : (left >= 0 ? `（D-${left}）` : `（已過期 ${Math.abs(left)} 天）`);
+    return `- ${g.title}：${done}/${total}（${pct}%） 截止：${ddl || "未設定"} ${leftText}`;
+  }).join("\n");
+
+  return {
+    dailyLines: dailyLines || "（無每日目標）",
+    longLines: longLines || "（無長期目標）",
+  };
+}
+
 function buildHistLog(days=5){
   const cal = new Date();
   let out = [];
@@ -273,27 +378,37 @@ async function fetchDashboardReport(){
   const now = new Date();
   const currentTimeStr = now.toLocaleString("zh-TW", { hour12:false });
 
-  const todayKey = dateKey(new Date());
-  const todayDone = data.events
-    .filter(e => dateKey(new Date(e.date)) === todayKey && e.isDone)
+  const todayK = todayKey();
+  const todayDoneList = data.events
+    .filter(e => dateKey(new Date(e.date)) === todayK && e.isDone)
     .map(e => e.title)
     .join(", ");
 
   const histLog = buildHistLog(5);
+  const goalStatus = buildGoalStatusText();
 
   const prompt = `
 【身分】高考全職考生，28歲，之前賺的存款都快花光了。
 【分析當下時間】：${currentTimeStr}
-【今日數據】：完課：${todayDone || "（無）"}。專注成功：${data.pomodoroDone}。失敗：${data.pomodoroFailed}。
+
+【今日任務完成】完課：${todayDoneList || "（無）"}。
+【番茄鐘】專注成功：${data.pomodoroDone}。失敗：${data.pomodoroFailed}。
+
+【每日目標（今日進度）】
+${goalStatus.dailyLines}
+
+【長期目標（總進度 & 截止日）】
+${goalStatus.longLines}
+
 【使用者本日反思】：${state.reflection?.trim() ? state.reflection.trim() : "（無）"}
 【歷史校正資料】：${histLog}。
+
 【要求】：
-1. 產出 200 字內深度學習診斷。點出不足與做得好的地方。Markdown **粗體** 關鍵字。
+1. 產出 220 字內深度學習診斷。必須把「每日目標達成度」與「長期目標進度/風險」納入評估。Markdown **粗體** 關鍵字。
 2. 回應使用者的「本日反思」並對話。
-3. 進行性格與習性分析。
-4. 會根據當下時間給予適當的回饋
-5. 會參考過去五天的histLog給予整體回饋
-6. 目標在督促學習和令人有動力學習
+3. 進行性格與習性分析（不超過100字）。
+4. 依據時間給出具體下一步（可執行、可量化）。
+5. 會參考過去五天的 histLog 給予整體回饋，避免只看一天。
 【結尾格式】：
 SCORE: [0-100]
 LOG: [50字今日總結]
@@ -303,7 +418,6 @@ CHAR: [性格習性分析，不超過100字]
   try{
     const fullMsg = await geminiGenerate(prompt);
 
-    // 跟 Swift 版相同：畫面顯示 SCORE 前的段落
     let reportText = fullMsg;
     let score = 0, log = "", char = "尚無分析資料。";
 
@@ -320,7 +434,14 @@ CHAR: [性格習性分析，不超過100字]
         if(logComp.length > 1) char = (logComp[1] || "").trim();
       }
 
-      data.dailyLogs[todayKey] = { score, summary: log, characterAnalysis: char };
+      // save snapshot of goals for this day (optional but useful for history)
+      const snapshot = {
+        daily: getDailyProgressFor(todayK),
+        long: (data.longGoals || []).map(g => ({ id:g.id, title:g.title, total:g.total, completed:g.completed, deadline:g.deadline })),
+        examDate: data.examDate,
+      };
+
+      data.dailyLogs[todayK] = { score, summary: log, characterAnalysis: char, goalSnapshot: snapshot };
       saveJSON(K.dailyLogs, data.dailyLogs);
     }
 
@@ -328,7 +449,6 @@ CHAR: [性格習性分析，不超過100字]
     data.analysisTime = currentTimeStr;
     persistAll();
 
-    // 清空反思（跟 Swift 版一致）
     state.reflection = "";
   }catch(err){
     data.reportMsg = "**（AI 連線失敗）** 先把今天最重要的兩件事做完，再回來提交。";
@@ -339,6 +459,69 @@ CHAR: [性格習性分析，不超過100字]
   }
 }
 
+/** ========= Theme ========= */
+function applyTheme(){
+  const theme = data.theme || DEFAULTS.theme;
+  const accent = (theme.accent || DEFAULTS.theme.accent).trim();
+
+  document.documentElement.style.setProperty("--cyan", accent);
+
+  // 你 CSS 若有用其他衍生色（如 --cyanSoft），也可以在這裡加
+  // document.documentElement.style.setProperty("--cyanSoft", accent + "AA");
+}
+
+/** attempt auto color from bg (may fail due to CORS) */
+async function tryAutoThemeFromBg(){
+  const url = (data.bgURL || "").trim();
+  if(!url) throw new Error("no bg");
+
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.decoding = "async";
+
+  const p = new Promise((resolve, reject)=>{
+    img.onload = ()=> resolve();
+    img.onerror = ()=> reject(new Error("image load failed"));
+  });
+
+  img.src = url;
+  await p;
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently:true });
+  const w = 64, h = 64;
+  canvas.width = w; canvas.height = h;
+  ctx.drawImage(img, 0, 0, w, h);
+
+  const { data: pixels } = ctx.getImageData(0,0,w,h);
+
+  let r=0,g=0,b=0,count=0;
+  for(let i=0;i<pixels.length;i+=4){
+    const a = pixels[i+3];
+    if(a < 10) continue;
+    r += pixels[i];
+    g += pixels[i+1];
+    b += pixels[i+2];
+    count++;
+  }
+  if(count <= 0) throw new Error("no pixels");
+
+  r = Math.round(r/count);
+  g = Math.round(g/count);
+  b = Math.round(b/count);
+
+  // slightly boost saturation/brightness-ish by nudging towards mid
+  const hex = rgbToHex(r,g,b);
+  data.theme = { accent: hex, mode: "auto" };
+  persistAll();
+  applyTheme();
+}
+
+function rgbToHex(r,g,b){
+  const to = (n)=> n.toString(16).padStart(2,"0");
+  return `#${to(r)}${to(g)}${to(b)}`;
+}
+
 /** ========= UI Rendering ========= */
 const elContent = document.getElementById("content");
 const elTitle = document.getElementById("pageTitle");
@@ -347,6 +530,18 @@ const elTopbarRight = document.getElementById("topbarRight");
 const elBg = document.getElementById("bg");
 
 function setTab(tab){
+  // leaving focus tab while running => arm auto-fail grace (kept from your pomodoro fix version if你有用那份)
+  if(state.tab === "focus" && tab !== "focus"){
+    if(state.focusSession?.status === "running"){
+      armAway("切換頁籤");
+    }
+  }
+
+  if(tab === "focus"){
+    disarmAway();
+    reconcileRunningClock();
+  }
+
   state.tab = tab;
   render();
 }
@@ -357,17 +552,18 @@ function renderTopbar(){
     focus: ["專注模式", "開始就別停，全職考生沒有退路"],
     dashboard: ["戰力診斷中心", "提交反思 → 產出教官戰術報告"],
     history: ["學習與性格履歷", "用分數點亮你的月曆"],
-    settings: ["設定", "API Key / 背景 / 資料管理"],
+    settings: ["設定", "API Key / 背景 / 目標 / 色調 / 資料管理"],
   };
 
   const [t, s] = map[state.tab] || ["", ""];
   elTitle.textContent = t;
   elSubtitle.textContent = s;
 
-  // 右上角：倒數天數（對應 Swift：目標 2026/01/31）
-  const target = new Date(2026, 0, 31);
+  // ✅ D- from user-config examDate
+  const target = parseISODateOnly(data.examDate) || new Date(2026,0,31);
   const today = new Date();
-  const diff = Math.ceil((target - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / (1000*60*60*24));
+  const base = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const diff = Math.ceil((target - base) / (1000*60*60*24));
   const daysLeft = Math.max(0, diff);
   elTopbarRight.innerHTML = `<span class="mono">D-${daysLeft}</span>`;
 }
@@ -380,7 +576,8 @@ function renderTabbar(){
 }
 
 function render(){
-  // background
+  applyTheme();
+
   elBg.style.backgroundImage = `url("${data.bgURL}")`;
 
   renderTopbar();
@@ -487,10 +684,18 @@ function renderCalendar(){
 
 /** ========= Focus View ========= */
 function renderFocus(){
-  // 若從日程帶任務名進來
   if(state.activeTaskFromSchedule){
     state.focusTaskName = state.activeTaskFromSchedule;
     state.activeTaskFromSchedule = "";
+    if(state.focusSession){
+      state.focusSession.taskName = state.focusTaskName;
+      persistAll();
+    }
+  }
+
+  if(state.focusSession){
+    disarmAway();
+    reconcileRunningClock();
   }
 
   const progress = state.totalTime > 0 ? (state.timeLeft / state.totalTime) : 0;
@@ -551,8 +756,8 @@ function renderFocus(){
 
 /** ========= Dashboard View ========= */
 function renderDashboard(){
-  const todayKey = dateKey(new Date());
-  const todayDone = data.events.filter(e => dateKey(new Date(e.date)) === todayKey && e.isDone);
+  const tKey = todayKey();
+  const todayDone = data.events.filter(e => dateKey(new Date(e.date)) === tKey && e.isDone);
   const doneList = todayDone.length
     ? todayDone.map(e=>{
         const st = new Date(e.date);
@@ -568,6 +773,27 @@ function renderDashboard(){
 
   const reportHtml = mdToHtml(data.reportMsg || "");
   const analysisTime = data.analysisTime ? `<span class="small mono">分析時間: ${escapeHtml(data.analysisTime)}</span>` : "";
+
+  const dp = getDailyProgressFor(tKey);
+
+  const dailyCounters = (data.dailyGoals || []).length
+    ? (data.dailyGoals || []).map(g=>{
+        const v = Number(dp?.[g.id] || 0);
+        const total = Number(g.target || 0);
+        const unit = g.unit || "";
+        const step = Number(g.step || 1);
+        return counterRowHtml(`${g.title}（每日）`, v, total, `daily:${g.id}`, step, unit);
+      }).join("")
+    : `<div class="small">尚無每日目標。請到「設定」新增。</div>`;
+
+  const longCounters = (data.longGoals || []).length
+    ? (data.longGoals || []).map(g=>{
+        const ddl = g.deadline || data.examDate || "";
+        const left = daysUntil(ddl);
+        const leftText = (left === null) ? "" : (left >= 0 ? ` D-${left}` : ` 已過期${Math.abs(left)}天`);
+        return counterRowHtml(`${g.title}（長期${leftText}）`, Number(g.completed||0), Number(g.total||0), `long:${g.id}`, 1, "");
+      }).join("")
+    : `<div class="small">尚無長期目標。請到「設定」新增。</div>`;
 
   return `
     <div class="card">
@@ -595,11 +821,13 @@ function renderDashboard(){
     </div>
 
     <div class="card">
-      <h3>進度計數器</h3>
-      ${data.goals.map(g => counterRowHtml(g.subject, g.completed, g.total, `goal:${g.id}`, 1)).join("")}
-      <div class="divider"></div>
-      ${counterRowHtml("法學緒論", data.lawScore, 100, "law", 25)}
-      ${counterRowHtml("英文單字", data.vocabCount, 0, "vocab", 10)}
+      <h3>每日目標（今天）</h3>
+      ${dailyCounters}
+    </div>
+
+    <div class="card">
+      <h3>長期目標（累積）</h3>
+      ${longCounters}
     </div>
 
     <div class="card">
@@ -615,14 +843,14 @@ function renderDashboard(){
   `;
 }
 
-function counterRowHtml(title, value, total, key, step){
-  const display = total > 0 ? `${value}/${total}` : `${value}`;
+function counterRowHtml(title, value, total, key, step, unit=""){
+  const display = total > 0 ? `${value}/${total}${unit}` : `${value}${unit}`;
   return `
     <div class="row-between" style="padding:10px 0;">
       <div><b>${escapeHtml(title)}</b></div>
       <div class="row" style="gap:8px;">
         <button class="btn" data-action="counterDec" data-key="${escapeAttr(key)}" data-step="${step}">－</button>
-        <div class="mono" style="min-width:90px; text-align:center; font-weight:900;">${escapeHtml(display)}</div>
+        <div class="mono" style="min-width:120px; text-align:center; font-weight:900;">${escapeHtml(display)}</div>
         <button class="btn primary" data-action="counterInc" data-key="${escapeAttr(key)}" data-step="${step}">＋</button>
       </div>
     </div>
@@ -664,7 +892,6 @@ function renderHistory(){
     `);
   }
 
-  // 月內 logs（新到舊）
   const monthKeys = Object.keys(data.dailyLogs || {})
     .filter(k => k.startsWith(ymKey(d)))
     .sort((a,b)=> b.localeCompare(a));
@@ -696,6 +923,21 @@ function renderHistory(){
       `;
     }).join("") : `<div class="small">無記錄</div>`;
 
+    // show daily goals snapshot (if exists)
+    let snapshotHtml = "";
+    if(log?.goalSnapshot){
+      const dp = log.goalSnapshot.daily || {};
+      const dailyLines = (data.dailyGoals || []).map(g=>{
+        const v = Number(dp?.[g.id] || 0);
+        return `<div class="small mono">${escapeHtml(g.title)}：${v}/${g.target}${g.unit||""}</div>`;
+      }).join("");
+      snapshotHtml = `
+        <div class="divider"></div>
+        <div class="small">【當日每日目標快照】</div>
+        ${dailyLines || `<div class="small">（無）</div>`}
+      `;
+    }
+
     return `
       <div class="card">
         <div class="row-between">
@@ -710,6 +952,7 @@ function renderHistory(){
           <div class="small">【性格分析】</div>
           <div style="line-height:1.6; color: rgba(0,229,255,0.85); font-style:italic;">${escapeHtml(ch)}</div>
         </div>
+        ${snapshotHtml}
         <div class="divider"></div>
         <div class="small">【本日時間軸】</div>
         ${timeline}
@@ -739,6 +982,52 @@ function renderHistory(){
 
 /** ========= Settings View ========= */
 function renderSettings(){
+  const theme = data.theme || DEFAULTS.theme;
+
+  const longList = (data.longGoals || []).map(g=>{
+    return `
+      <div class="card" style="margin:10px 0; background:var(--card2)">
+        <div class="small">長期目標</div>
+        <div style="margin-top:8px;">
+          <input class="input" data-goal-field="title" data-id="${g.id}" value="${escapeAttr(g.title)}" placeholder="科目/名稱" />
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input class="input mono" style="flex:1" data-goal-field="total" data-id="${g.id}" value="${escapeAttr(g.total)}" placeholder="總量(堂/章/單元)" />
+          <input class="input mono" style="flex:1" data-goal-field="completed" data-id="${g.id}" value="${escapeAttr(g.completed)}" placeholder="已完成" />
+        </div>
+        <div style="margin-top:8px;">
+          <input class="input mono" data-goal-field="deadline" data-id="${g.id}" value="${escapeAttr(g.deadline || "")}" placeholder="截止日 YYYY-MM-DD" />
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" data-action="saveLongGoal" data-id="${g.id}">儲存</button>
+          <button class="btn danger" data-action="delLongGoal" data-id="${g.id}">刪除</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const dailyList = (data.dailyGoals || []).map(g=>{
+    return `
+      <div class="card" style="margin:10px 0; background:var(--card2)">
+        <div class="small">每日目標</div>
+        <div style="margin-top:8px;">
+          <input class="input" data-dgoal-field="title" data-id="${g.id}" value="${escapeAttr(g.title)}" placeholder="名稱" />
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input class="input mono" style="flex:1" data-dgoal-field="target" data-id="${g.id}" value="${escapeAttr(g.target)}" placeholder="每日目標量" />
+          <input class="input mono" style="flex:1" data-dgoal-field="step" data-id="${g.id}" value="${escapeAttr(g.step || 1)}" placeholder="步進(+/-)" />
+        </div>
+        <div style="margin-top:8px;">
+          <input class="input" data-dgoal-field="unit" data-id="${g.id}" value="${escapeAttr(g.unit || "")}" placeholder="單位(題/字/頁...)" />
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" data-action="saveDailyGoal" data-id="${g.id}">儲存</button>
+          <button class="btn danger" data-action="delDailyGoal" data-id="${g.id}">刪除</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
   return `
     <div class="card">
       <h3>Gemini API</h3>
@@ -757,6 +1046,76 @@ function renderSettings(){
       <div class="row" style="margin-top:10px;">
         <button class="btn primary" data-action="saveBg">儲存背景</button>
         <button class="btn" data-action="resetBg">恢復預設</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>考試倒數（D-）</h3>
+      <div class="small">右上角 D- 會以這個日期計算。</div>
+      <div style="margin-top:10px;">
+        <input class="input mono" id="examDateInput" value="${escapeAttr(data.examDate)}" placeholder="YYYY-MM-DD" />
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn primary" data-action="saveExamDate">儲存日期</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>色調（主色）</h3>
+      <div class="small">會套用到重點色（CSS 變數 --cyan）。如果背景換了覺得刺眼，直接換這個。</div>
+      <div class="row" style="margin-top:10px; gap:10px; align-items:center;">
+        <input class="input mono" id="accentInput" value="${escapeAttr(theme.accent || DEFAULTS.theme.accent)}" placeholder="#RRGGBB" />
+        <input type="color" id="accentPicker" value="${escapeAttr(theme.accent || DEFAULTS.theme.accent)}" style="height:42px; width:56px; border:none; background:transparent;" />
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn primary" data-action="saveAccent">儲存主色</button>
+        <button class="btn" data-action="autoAccent">自動從背景抓色</button>
+      </div>
+      <div class="small" style="margin-top:8px; opacity:0.85;">
+        ※ 自動抓色若失敗，多半是圖片跨域限制，改用手動選色即可。
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>長期目標（可自訂）</h3>
+      <div class="small">行政學/政治學這類，會評估進度與截止日風險。</div>
+
+      <div style="margin-top:10px;">
+        <input class="input" id="newLongTitle" placeholder="新增：名稱（例：行政學）" />
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <input class="input mono" style="flex:1" id="newLongTotal" placeholder="總量（例：40）" />
+        <input class="input mono" style="flex:1" id="newLongDeadline" placeholder="截止日（例：2026-01-31）" />
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn primary" data-action="addLongGoal">＋ 新增長期目標</button>
+      </div>
+
+      <div style="margin-top:10px;">
+        ${longList || `<div class="small">（目前沒有長期目標）</div>`}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>每日目標（可自訂）</h3>
+      <div class="small">刷題/背單字這類，每天都要達標，報告會評估達成度。</div>
+
+      <div style="margin-top:10px;">
+        <input class="input" id="newDailyTitle" placeholder="新增：名稱（例：英文刷題）" />
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <input class="input mono" style="flex:1" id="newDailyTarget" placeholder="每日目標量（例：100）" />
+        <input class="input mono" style="flex:1" id="newDailyStep" placeholder="步進（例：10）" />
+      </div>
+      <div style="margin-top:8px;">
+        <input class="input" id="newDailyUnit" placeholder="單位（例：題）" />
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn primary" data-action="addDailyGoal">＋ 新增每日目標</button>
+      </div>
+
+      <div style="margin-top:10px;">
+        ${dailyList || `<div class="small">（目前沒有每日目標）</div>`}
       </div>
     </div>
 
@@ -783,7 +1142,7 @@ const btnSaveTask = document.getElementById("btnSaveTask");
 const btnDeleteTask = document.getElementById("btnDeleteTask");
 const segBtns = Array.from(document.querySelectorAll(".segmented .seg"));
 
-let dialogMode = "add"; // add/edit
+let dialogMode = "add";
 let dialogEditingId = null;
 let dialogType = "Study";
 let dialogDate = null;
@@ -864,7 +1223,7 @@ btnDeleteTask.onclick = ()=>{
 
 /** ========= Dynamic handlers ========= */
 function bindDynamicHandlers(){
-  // month nav (calendar + history 共用)
+  // month nav (calendar + history)
   elContent.querySelectorAll("[data-action='monthPrev']").forEach(btn=>{
     btn.onclick = ()=>{
       state.selectedDate = addMonths(state.selectedDate, -1);
@@ -970,7 +1329,7 @@ function bindDynamicHandlers(){
     };
   });
 
-  // counters
+  // counters (daily + long)
   elContent.querySelectorAll("[data-action='counterInc']").forEach(btn=>{
     btn.onclick = ()=>{
       const key = btn.dataset.key;
@@ -988,7 +1347,7 @@ function bindDynamicHandlers(){
     };
   });
 
-  // settings
+  // settings: api/bg
   elContent.querySelectorAll("[data-action='saveApiKey']").forEach(btn=>{
     btn.onclick = ()=>{
       const v = (document.getElementById("apiKeyInput")?.value || "").trim();
@@ -1016,6 +1375,174 @@ function bindDynamicHandlers(){
     };
   });
 
+  // settings: exam date
+  elContent.querySelectorAll("[data-action='saveExamDate']").forEach(btn=>{
+    btn.onclick = ()=>{
+      const v = (document.getElementById("examDateInput")?.value || "").trim();
+      if(v && !/^\d{4}-\d{2}-\d{2}$/.test(v)){
+        alert("日期格式請用 YYYY-MM-DD");
+        return;
+      }
+      data.examDate = v || DEFAULTS.examDate;
+      persistAll();
+      render();
+      alert("已儲存考試日期");
+    };
+  });
+
+  // settings: theme
+  const accentPicker = document.getElementById("accentPicker");
+  const accentInput = document.getElementById("accentInput");
+  if(accentPicker && accentInput){
+    accentPicker.oninput = ()=> { accentInput.value = accentPicker.value; };
+  }
+  elContent.querySelectorAll("[data-action='saveAccent']").forEach(btn=>{
+    btn.onclick = ()=>{
+      const v = (document.getElementById("accentInput")?.value || "").trim();
+      if(!/^#([0-9a-fA-F]{6})$/.test(v)){
+        alert("主色請用 #RRGGBB 格式");
+        return;
+      }
+      data.theme = { accent: v, mode: "manual" };
+      persistAll();
+      applyTheme();
+      render();
+      alert("已儲存主色");
+    };
+  });
+  elContent.querySelectorAll("[data-action='autoAccent']").forEach(btn=>{
+    btn.onclick = async ()=>{
+      try{
+        await tryAutoThemeFromBg();
+        render();
+        alert(`自動配色完成：${data.theme.accent}`);
+      }catch(e){
+        alert("自動配色失敗（常見原因：圖片跨域不允許讀像素）。請改用手動選色。");
+      }
+    };
+  });
+
+  // settings: add/save/delete long goals
+  elContent.querySelectorAll("[data-action='addLongGoal']").forEach(btn=>{
+    btn.onclick = ()=>{
+      const title = (document.getElementById("newLongTitle")?.value || "").trim();
+      const total = Number((document.getElementById("newLongTotal")?.value || "").trim());
+      const deadline = (document.getElementById("newLongDeadline")?.value || "").trim() || data.examDate;
+
+      if(!title) return alert("請輸入長期目標名稱");
+      if(!Number.isFinite(total) || total <= 0) return alert("總量請輸入正數");
+      if(deadline && !/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return alert("截止日格式請用 YYYY-MM-DD");
+
+      data.longGoals.unshift({
+        id: crypto.randomUUID(),
+        title,
+        total,
+        completed: 0,
+        deadline: deadline || "",
+      });
+      persistAll();
+      render();
+    };
+  });
+
+  elContent.querySelectorAll("[data-action='saveLongGoal']").forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.id;
+      const g = data.longGoals.find(x=> x.id === id);
+      if(!g) return;
+
+      const title = (elContent.querySelector(`[data-goal-field="title"][data-id="${id}"]`)?.value || "").trim();
+      const total = Number((elContent.querySelector(`[data-goal-field="total"][data-id="${id}"]`)?.value || "").trim());
+      const completed = Number((elContent.querySelector(`[data-goal-field="completed"][data-id="${id}"]`)?.value || "").trim());
+      const deadline = (elContent.querySelector(`[data-goal-field="deadline"][data-id="${id}"]`)?.value || "").trim();
+
+      if(!title) return alert("名稱不可空白");
+      if(!Number.isFinite(total) || total <= 0) return alert("總量請輸入正數");
+      if(!Number.isFinite(completed) || completed < 0) return alert("已完成請輸入 >= 0");
+      if(deadline && !/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return alert("截止日格式請用 YYYY-MM-DD");
+
+      g.title = title;
+      g.total = total;
+      g.completed = Math.max(0, completed);
+      g.deadline = deadline;
+
+      persistAll();
+      render();
+      alert("已儲存長期目標");
+    };
+  });
+
+  elContent.querySelectorAll("[data-action='delLongGoal']").forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.id;
+      if(!confirm("確定刪除這個長期目標？")) return;
+      data.longGoals = data.longGoals.filter(x=> x.id !== id);
+      persistAll();
+      render();
+    };
+  });
+
+  // settings: add/save/delete daily goals
+  elContent.querySelectorAll("[data-action='addDailyGoal']").forEach(btn=>{
+    btn.onclick = ()=>{
+      const title = (document.getElementById("newDailyTitle")?.value || "").trim();
+      const target = Number((document.getElementById("newDailyTarget")?.value || "").trim());
+      const step = Number((document.getElementById("newDailyStep")?.value || "").trim());
+      const unit = (document.getElementById("newDailyUnit")?.value || "").trim();
+
+      if(!title) return alert("請輸入每日目標名稱");
+      if(!Number.isFinite(target) || target <= 0) return alert("每日目標量請輸入正數");
+      if(!Number.isFinite(step) || step <= 0) return alert("步進請輸入正數");
+
+      data.dailyGoals.unshift({
+        id: crypto.randomUUID(),
+        title,
+        target,
+        step,
+        unit: unit || "",
+      });
+      persistAll();
+      render();
+    };
+  });
+
+  elContent.querySelectorAll("[data-action='saveDailyGoal']").forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.id;
+      const g = data.dailyGoals.find(x=> x.id === id);
+      if(!g) return;
+
+      const title = (elContent.querySelector(`[data-dgoal-field="title"][data-id="${id}"]`)?.value || "").trim();
+      const target = Number((elContent.querySelector(`[data-dgoal-field="target"][data-id="${id}"]`)?.value || "").trim());
+      const step = Number((elContent.querySelector(`[data-dgoal-field="step"][data-id="${id}"]`)?.value || "").trim());
+      const unit = (elContent.querySelector(`[data-dgoal-field="unit"][data-id="${id}"]`)?.value || "").trim();
+
+      if(!title) return alert("名稱不可空白");
+      if(!Number.isFinite(target) || target <= 0) return alert("每日目標量請輸入正數");
+      if(!Number.isFinite(step) || step <= 0) return alert("步進請輸入正數");
+
+      g.title = title;
+      g.target = target;
+      g.step = step;
+      g.unit = unit;
+
+      persistAll();
+      render();
+      alert("已儲存每日目標");
+    };
+  });
+
+  elContent.querySelectorAll("[data-action='delDailyGoal']").forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.id;
+      if(!confirm("確定刪除這個每日目標？（歷史紀錄不會被改掉）")) return;
+      data.dailyGoals = data.dailyGoals.filter(x=> x.id !== id);
+      persistAll();
+      render();
+    };
+  });
+
+  // data manage
   elContent.querySelectorAll("[data-action='exportData']").forEach(btn=>{
     btn.onclick = exportData;
   });
@@ -1048,93 +1575,179 @@ function bindDynamicHandlers(){
 
 /** ========= Counter logic ========= */
 function counterUpdate(key, delta){
-  if(key.startsWith("goal:")){
+  const tKey = todayKey();
+
+  if(key.startsWith("long:")){
     const id = key.split(":")[1];
-    const g = data.goals.find(x=> x.id === id);
+    const g = data.longGoals.find(x=> x.id === id);
     if(!g) return;
-    g.completed = Math.max(0, g.completed + delta);
-    // 可以限制不超過 total：若你想一致，就打開下面一行
-    // g.completed = Math.min(g.total, g.completed);
+    g.completed = Math.max(0, Number(g.completed || 0) + delta);
     persistAll();
     return;
   }
-  if(key === "law"){
-    data.lawScore = Math.max(0, data.lawScore + delta);
-    persistAll();
-    return;
-  }
-  if(key === "vocab"){
-    data.vocabCount = Math.max(0, data.vocabCount + delta);
+
+  if(key.startsWith("daily:")){
+    const id = key.split(":")[1];
+    const v = Number(getDailyProgressFor(tKey)?.[id] || 0);
+    setDailyProgress(tKey, id, v + delta);
     persistAll();
     return;
   }
 }
 
-/** ========= Focus timer logic ========= */
+/** ========= Focus timer logic (pomodoro version kept) ========= */
+const K_FOCUS_SESSION = "focusSession";
+const DEFAULT_FOCUS_SESSION = {
+  status: "idle",
+  sessionId: null,
+  taskName: "",
+  startedAtISO: null,
+  endsAtMs: null,
+  totalTimeSec: 1500,
+  timeLeftSec: 1500,
+  awayArmed: false,
+  awayDeadlineMs: null,
+  awayReason: "",
+};
+const FOCUS_GRACE_MS = 30_000;
+
+function nowMs(){ return Date.now(); }
+function loadFocusSession(){
+  const s = loadJSON(K_FOCUS_SESSION, null);
+  return (s && typeof s === "object") ? s : JSON.parse(JSON.stringify(DEFAULT_FOCUS_SESSION));
+}
+function saveFocusSession(){
+  localStorage.setItem(K_FOCUS_SESSION, JSON.stringify(state.focusSession));
+}
+function syncUIFromSession(){
+  const s = state.focusSession;
+  state.isFocusing = (s.status === "running");
+  state.totalTime = s.totalTimeSec;
+  state.timeLeft = s.timeLeftSec;
+  state.focusTaskName = s.taskName || state.focusTaskName || "";
+  state.focusStartTime = s.startedAtISO ? new Date(s.startedAtISO) : null;
+}
+function disarmAway(){
+  const s = state.focusSession;
+  s.awayArmed = false;
+  s.awayDeadlineMs = null;
+  s.awayReason = "";
+  saveFocusSession();
+}
+function armAway(reason){
+  const s = state.focusSession;
+  if(s.status !== "running") return;
+  s.awayArmed = true;
+  s.awayDeadlineMs = nowMs() + FOCUS_GRACE_MS;
+  s.awayReason = reason || "離開專注";
+  saveFocusSession();
+}
+function checkAwayAutoFail(){
+  const s = state.focusSession;
+  if(!s.awayArmed || !s.awayDeadlineMs) return false;
+  if(s.status !== "running") { disarmAway(); return false; }
+  if(nowMs() >= s.awayDeadlineMs){
+    recordPomodoroFail(`離開超過 30 秒：${s.awayReason}`, { auto:true });
+    return true;
+  }
+  return false;
+}
+function reconcileRunningClock(){
+  const s = state.focusSession;
+  if(checkAwayAutoFail()) return;
+
+  if(s.status !== "running"){
+    syncUIFromSession();
+    return;
+  }
+  if(!Number.isFinite(s.endsAtMs) || s.endsAtMs === null){
+    s.endsAtMs = nowMs() + (Number(s.timeLeftSec ?? s.totalTimeSec) * 1000);
+  }
+  const remainMs = s.endsAtMs - nowMs();
+  const remainSec = Math.max(0, Math.ceil(remainMs / 1000));
+  s.timeLeftSec = remainSec;
+  saveFocusSession();
+
+  syncUIFromSession();
+
+  if(remainSec <= 0){
+    recordPomodoroSuccess();
+  }
+}
+
 function toggleFocus(){
   const name = (document.getElementById("focusTaskName")?.value || state.focusTaskName || "").trim();
   state.focusTaskName = name;
 
-  if(!state.isFocusing){
-    // start
-    state.isFocusing = true;
-    state.focusStartTime = new Date();
-    state.timeLeft = state.totalTime;
+  const s = state.focusSession;
+  if(state.tab === "focus") disarmAway();
+
+  if(s.status === "idle"){
+    const taskTitle = state.focusTaskName || "未命名任務";
+    const start = new Date();
+
+    s.status = "running";
+    s.sessionId = crypto.randomUUID();
+    s.taskName = taskTitle;
+    s.startedAtISO = start.toISOString();
+    s.totalTimeSec = state.totalTime;
+    s.timeLeftSec = state.totalTime;
+    s.endsAtMs = nowMs() + (s.timeLeftSec * 1000);
+
+    disarmAway();
+    saveFocusSession();
+    syncUIFromSession();
     startTimer();
-  }else{
-    // pause
-    state.isFocusing = false;
-    stopTimer();
+    render();
+    return;
   }
-  render();
+
+  if(s.status === "running"){
+    reconcileRunningClock();
+    s.status = "paused";
+    s.endsAtMs = null;
+    disarmAway();
+    saveFocusSession();
+    stopTimer();
+    syncUIFromSession();
+    render();
+    return;
+  }
+
+  if(s.status === "paused"){
+    const taskTitle = state.focusTaskName || s.taskName || "未命名任務";
+    s.taskName = taskTitle;
+
+    s.totalTimeSec = state.totalTime;
+    s.timeLeftSec = Math.min(s.timeLeftSec || s.totalTimeSec, s.totalTimeSec);
+    s.endsAtMs = nowMs() + (s.timeLeftSec * 1000);
+
+    s.status = "running";
+    disarmAway();
+    saveFocusSession();
+    syncUIFromSession();
+    startTimer();
+    render();
+    return;
+  }
 }
 
 function startTimer(){
   stopTimer();
   state.timerId = setInterval(()=>{
-    if(!state.isFocusing) return;
-    state.timeLeft = Math.max(0, state.timeLeft - 1);
+    const s = state.focusSession;
+    if(!s) return;
 
-    if(state.timeLeft === 0){
-      // success
-      state.isFocusing = false;
-      stopTimer();
-
-      const taskTitle = state.focusTaskName || "未命名任務";
-      const start = state.focusStartTime || new Date();
-
-      // 如果有同名未完成讀書任務 → 直接完成它
-      const idx = data.events.findIndex(e => e.title === taskTitle && e.type === "Study" && !e.isDone);
-      if(idx >= 0){
-        data.events[idx].isDone = true;
-        data.events[idx].endTime = new Date().toISOString();
-        persistAll();
-      }else{
-        upsertEvent({
-          id: crypto.randomUUID(),
-          title: taskTitle,
-          date: start.toISOString(),
-          endTime: new Date().toISOString(),
-          type: "Study",
-          isDone: true,
-        });
-      }
-
-      data.pomodoroDone += 1;
-      persistAll();
-
-      fetchFocusJab(`任務達成：${taskTitle}`);
-
-      // reset to total time (like Swift)
-      state.timeLeft = state.totalTime;
-      render();
-    }else{
-      // re-render occasionally for smooth-ish update
-      if(state.timeLeft % 1 === 0) render();
+    if(checkAwayAutoFail()){
+      return;
     }
-  }, 1000);
-}
+    if(s.status !== "running") return;
 
+    reconcileRunningClock();
+
+    if(state.tab === "focus") render();
+  }, 250);
+}
 function stopTimer(){
   if(state.timerId){
     clearInterval(state.timerId);
@@ -1142,40 +1755,116 @@ function stopTimer(){
   }
 }
 
-function abandonTask(){
-  const taskTitle = (document.getElementById("focusTaskName")?.value || state.focusTaskName || "").trim() || "未命名任務";
-  const start = state.focusStartTime || new Date();
+function recordPomodoroSuccess(){
+  const s = state.focusSession;
+  if(!s || s.status !== "running") return;
 
-  // Insert failed record (like Swift)
+  s.timeLeftSec = 0;
+  s.status = "idle";
+  s.endsAtMs = null;
+
+  disarmAway();
+  stopTimer();
+
+  const taskTitle = s.taskName || "未命名任務";
+  const startISO = s.startedAtISO || new Date().toISOString();
+
+  const idx = data.events.findIndex(e => e.title === taskTitle && e.type === "Study" && !e.isDone);
+  if(idx >= 0){
+    data.events[idx].isDone = true;
+    data.events[idx].endTime = new Date().toISOString();
+    persistAll();
+  }else{
+    upsertEvent({
+      id: crypto.randomUUID(),
+      title: taskTitle,
+      date: startISO,
+      endTime: new Date().toISOString(),
+      type: "Study",
+      isDone: true,
+    });
+  }
+
+  data.pomodoroDone += 1;
+
+  s.sessionId = null;
+  s.startedAtISO = null;
+  s.timeLeftSec = s.totalTimeSec;
+
+  saveFocusSession();
+  persistAll();
+  syncUIFromSession();
+
+  fetchFocusJab(`任務達成：${taskTitle}`);
+  render();
+}
+
+function recordPomodoroFail(reason, { auto=false } = {}){
+  const s = state.focusSession;
+  if(!s) return;
+
+  // idle 不算失敗
+  if(s.status === "idle"){
+    data.focusMsg = `**未開始不計失敗。** 直接按「開始」。`;
+    persistAll();
+    render();
+    return;
+  }
+  if(s.status !== "running" && s.status !== "paused") return;
+
+  stopTimer();
+
+  const taskTitle = (s.taskName || state.focusTaskName || "").trim() || "未命名任務";
+  const startISO = s.startedAtISO || new Date().toISOString();
+
   upsertEvent({
     id: crypto.randomUUID(),
     title: taskTitle,
-    date: start.toISOString(),
+    date: startISO,
     endTime: new Date().toISOString(),
     type: "Study",
     isDone: false,
   });
 
-  state.isFocusing = false;
-  stopTimer();
-  state.timeLeft = state.totalTime;
-
   data.pomodoroFailed += 1;
-  persistAll();
 
-  fetchFocusJab(`任務失敗：${taskTitle}`);
+  s.status = "idle";
+  s.endsAtMs = null;
+  s.sessionId = null;
+  s.startedAtISO = null;
+  s.timeLeftSec = s.totalTimeSec;
+
+  disarmAway();
+  saveFocusSession();
+  persistAll();
+  syncUIFromSession();
+
+  const tag = auto ? "（自動判負）" : "";
+  fetchFocusJab(`任務失敗${tag}：${taskTitle}${reason ? `｜${reason}` : ""}`);
   render();
+}
+
+function abandonTask(){
+  const s = state.focusSession;
+  const taskTitle = (document.getElementById("focusTaskName")?.value || state.focusTaskName || s.taskName || "").trim();
+  if(taskTitle) state.focusTaskName = taskTitle;
+  if(taskTitle) s.taskName = taskTitle;
+  saveFocusSession();
+  recordPomodoroFail("手動放棄", { auto:false });
 }
 
 /** ========= Export/Import/Reset ========= */
 function exportData(){
   const payload = {
-    version: 1,
+    version: 3,
     exportedAt: new Date().toISOString(),
     data: {
-      goals: data.goals,
-      lawScore: data.lawScore,
-      vocabCount: data.vocabCount,
+      longGoals: data.longGoals,
+      dailyGoals: data.dailyGoals,
+      dailyGoalProgress: data.dailyGoalProgress,
+      examDate: data.examDate,
+      theme: data.theme,
+
       wakeTime: data.wakeTime,
       sleepTime: data.sleepTime,
       events: data.events,
@@ -1187,6 +1876,8 @@ function exportData(){
       reportMsg: data.reportMsg,
       analysisTime: data.analysisTime,
       focusMsg: data.focusMsg,
+
+      focusSession: state.focusSession,
     }
   };
 
@@ -1203,9 +1894,12 @@ function importDataObj(obj){
   const d = obj?.data;
   if(!d) throw new Error("invalid");
 
-  data.goals = Array.isArray(d.goals) ? d.goals : DEFAULTS.goals;
-  data.lawScore = Number(d.lawScore ?? DEFAULTS.lawScore) || 0;
-  data.vocabCount = Number(d.vocabCount ?? DEFAULTS.vocabCount) || 0;
+  data.longGoals = Array.isArray(d.longGoals) ? d.longGoals : DEFAULTS.longGoals;
+  data.dailyGoals = Array.isArray(d.dailyGoals) ? d.dailyGoals : DEFAULTS.dailyGoals;
+  data.dailyGoalProgress = d.dailyGoalProgress || {};
+  data.examDate = d.examDate || DEFAULTS.examDate;
+  data.theme = d.theme || DEFAULTS.theme;
+
   data.wakeTime = d.wakeTime || DEFAULTS.wakeTime;
   data.sleepTime = d.sleepTime || DEFAULTS.sleepTime;
   data.events = Array.isArray(d.events) ? d.events : [];
@@ -1219,7 +1913,12 @@ function importDataObj(obj){
   data.focusMsg = d.focusMsg || DEFAULTS.focusMsg;
 
   normalizeEvents();
+
+  state.focusSession = d.focusSession || loadFocusSession();
+  saveFocusSession();
+
   persistAll();
+  applyTheme();
 }
 
 function resetAll(){
@@ -1240,19 +1939,105 @@ function escapeAttr(s){
   return escapeHtml(s).replaceAll("'", "&#39;");
 }
 
+/** ========= Migration (legacy -> new goals) ========= */
+function migrateIfNeeded(){
+  // if new exists, do nothing
+  if(Array.isArray(data.longGoals) && Array.isArray(data.dailyGoals)) return;
+
+  // build from legacy
+  let longGoals = [];
+  if(Array.isArray(data.legacyGoals) && data.legacyGoals.length){
+    longGoals = data.legacyGoals.map(g=>({
+      id: g.id || crypto.randomUUID(),
+      title: g.subject || g.title || "未命名",
+      total: Number(g.total || 0) || 1,
+      completed: Number(g.completed || 0) || 0,
+      deadline: data.examDate || DEFAULTS.examDate,
+    }));
+  }else{
+    longGoals = DEFAULTS.longGoals;
+  }
+
+  // daily goals: convert legacy law/vocab as "today progress" (best-effort)
+  const dailyGoals = DEFAULTS.dailyGoals.map(x=>({ ...x, id: crypto.randomUUID() }));
+
+  data.longGoals = longGoals;
+  data.dailyGoals = dailyGoals;
+
+  // map today's progress from legacy values
+  const tK = todayKey();
+  data.dailyGoalProgress = data.dailyGoalProgress || {};
+  if(!data.dailyGoalProgress[tK]) data.dailyGoalProgress[tK] = {};
+  // put legacy into first two daily goals if present
+  if(dailyGoals[0]) data.dailyGoalProgress[tK][dailyGoals[0].id] = Number(data.legacyLaw || 0);
+  if(dailyGoals[1]) data.dailyGoalProgress[tK][dailyGoals[1].id] = Number(data.legacyVocab || 0);
+
+  // save new
+  persistAll();
+}
+
 /** ========= Init ========= */
 (function init(){
   checkDailyReset();
   normalizeEvents();
-  persistAll(); // ensure defaults exist
 
-  // initialize timer to default total time
-  state.totalTime = 1500;
-  state.timeLeft = 1500;
+  // migrate goals
+  migrateIfNeeded();
 
-  // If user switches tab while focusing, we DO NOT auto-abandon (web differs from SwiftUI onDisappear),
-  // but你要一致也可以在 setTab 時自動 abandon。
+  // ensure defaults exist if still null
+  if(!Array.isArray(data.longGoals)) data.longGoals = DEFAULTS.longGoals;
+  if(!Array.isArray(data.dailyGoals)) data.dailyGoals = DEFAULTS.dailyGoals;
+  if(!data.dailyGoalProgress) data.dailyGoalProgress = {};
+
+  // theme apply
+  applyTheme();
+
+  // focus session init
+  state.focusSession = loadFocusSession();
+  syncUIFromSession();
+
+  // init timer values from session
+  state.totalTime = state.focusSession?.totalTimeSec ?? 1500;
+  state.timeLeft = state.focusSession?.timeLeftSec ?? state.totalTime;
+
+  persistAll();
+
+  if(state.focusSession?.status === "running"){
+    if(checkAwayAutoFail()){
+      // handled
+    }else{
+      reconcileRunningClock();
+      startTimer();
+    }
+  }
+
+  // visibility events
+  document.addEventListener("visibilitychange", ()=>{
+    const s = state.focusSession;
+    if(!s) return;
+
+    if(document.hidden){
+      if(s.status === "running"){
+        armAway("切到背景");
+      }
+    }else{
+      if(state.tab === "focus") disarmAway();
+      reconcileRunningClock();
+      render();
+    }
+  });
+  window.addEventListener("blur", ()=>{
+    const s = state.focusSession;
+    if(!s) return;
+    if(s.status === "running"){
+      armAway("視窗失焦");
+    }
+  });
+  window.addEventListener("focus", ()=>{
+    if(state.tab === "focus") disarmAway();
+    reconcileRunningClock();
+    render();
+  });
+
   render();
-
-  // page visibility: if hidden, keep timer running (browser may throttle). We'll just keep state.
 })();
