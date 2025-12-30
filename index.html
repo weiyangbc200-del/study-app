@@ -7,361 +7,253 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
-        :root { --cyan-primary: #22d3ee; }
-        body { background-color: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif; overflow: hidden; -webkit-user-select: none; }
-        .bg-main { background-size: cover; background-position: center; position: fixed; inset: 0; z-index: -10; transition: background-image 0.5s ease-in-out; }
+        :root { --cyan-color: #22d3ee; }
+        body { background-color: #000; color: #fff; font-family: -apple-system, sans-serif; overflow: hidden; }
+        .bg-img { background-size: cover; background-position: center; position: fixed; inset: 0; z-index: -10; opacity: 0.5; }
         .glass { background: rgba(255, 255, 255, 0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); }
-        .tab-active { color: var(--cyan-primary); text-shadow: 0 0 10px rgba(34, 211, 238, 0.5); }
-        .report-content b { color: var(--cyan-primary); font-weight: 700; }
-        textarea, input { background: rgba(0, 0, 0, 0.3) !important; border: 1px solid rgba(255,255,255,0.1) !important; color: white !important; outline: none !important; }
+        .tab-active { color: var(--cyan-color); text-shadow: 0 0 10px rgba(34, 211, 238, 0.5); }
+        
+        /* 報告解析樣式 */
+        .report-content { line-height: 1.8; color: #e5e7eb; font-size: 0.95rem; white-space: pre-wrap; }
+        .report-content b { color: var(--cyan-color); font-weight: bold; }
+        
+        textarea, input { background: rgba(0,0,0,0.3) !important; border: 1px solid rgba(255,255,255,0.1) !important; color: white !important; outline: none !important; }
         .no-sb::-webkit-scrollbar { display: none; }
-        .progress-ring { transform: rotate(-90deg); }
-        .progress-ring-circle { transition: stroke-dashoffset 0.35s; transform-origin: 50% 50%; }
-        .btn-press:active { transform: scale(0.95); opacity: 0.8; }
+        .progress-ring-circle { transition: stroke-dashoffset 0.3s; transform: rotate(-90deg); transform-origin: 50% 50%; }
     </style>
 </head>
-<body>
-    <div id="main-bg" class="bg-main opacity-50"></div>
-    <div class="fixed inset-0 bg-gradient-to-b from-black/20 via-black/40 to-black/90 -z-5"></div>
+<body class="no-sb">
+    <div id="main-bg" class="bg-img"></div>
+    <div class="fixed inset-0 bg-black/40 -z-5"></div>
 
-    <div id="app" class="h-screen flex flex-col relative z-10">
-        <main id="view" class="flex-1 overflow-y-auto no-sb p-5 pb-40"></main>
+    <div id="app" class="h-screen flex flex-col">
+        <main id="view-builder" class="flex-1 overflow-y-auto no-sb p-5 pb-40"></main>
 
-        <nav class="fixed bottom-0 left-0 right-0 glass rounded-t-3xl border-t border-white/10 flex justify-around py-4 pb-10 bg-black/80">
-            <button onclick="switchTab(0)" id="t0" class="flex flex-col items-center text-gray-500 gap-1 transition-all"><i class="bi bi-calendar-check text-xl"></i><span class="text-[10px] font-bold">日程</span></button>
-            <button onclick="switchTab(1)" id="t1" class="flex flex-col items-center text-gray-500 gap-1 transition-all"><i class="bi bi-stopwatch text-xl"></i><span class="text-[10px] font-bold">專注</span></button>
-            <button onclick="switchTab(2)" id="t2" class="flex flex-col items-center text-gray-500 gap-1 transition-all"><i class="bi bi-shield-shaded text-xl"></i><span class="text-[10px] font-bold">看板</span></button>
-            <button onclick="switchTab(3)" id="t3" class="flex flex-col items-center text-gray-500 gap-1 transition-all"><i class="bi bi-person-badge text-xl"></i><span class="text-[10px] font-bold">學歷</span></button>
-            <button onclick="switchTab(4)" id="t4" class="flex flex-col items-center text-gray-500 gap-1 transition-all"><i class="bi bi-sliders text-xl"></i><span class="text-[10px] font-bold">設定</span></button>
+        <nav class="fixed bottom-0 left-0 right-0 glass rounded-t-3xl border-t border-white/10 flex justify-around py-4 pb-10 bg-black/90">
+            <button onclick="tab(0)" id="t0" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-calendar3"></i><span class="text-[10px]">日程</span></button>
+            <button onclick="tab(1)" id="t1" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-timer"></i><span class="text-[10px]">專注</span></button>
+            <button onclick="tab(2)" id="t2" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-bar-chart-fill"></i><span class="text-[10px]">看板</span></button>
+            <button onclick="tab(3)" id="t3" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-clock-history"></i><span class="text-[10px]">學歷</span></button>
+            <button onclick="tab(4)" id="t4" class="flex flex-col items-center text-gray-500 gap-1"><i class="bi bi-gear-wide-connected"></i><span class="text-[10px]">設定</span></button>
         </nav>
     </div>
 
+    <div id="sheet" class="fixed inset-0 bg-black/80 z-50 hidden flex items-end">
+        <div class="glass w-full p-6 rounded-t-3xl border-t border-white/20">
+            <input id="sheet-input" class="w-full p-4 rounded-xl mb-4" placeholder="日程內容...">
+            <div class="flex gap-2 mb-6">
+                <button onclick="setSheetType('Study')" id="st-Study" class="flex-1 py-2 rounded-lg border border-white/10 text-xs">讀書</button>
+                <button onclick="setSheetType('Life')" id="st-Life" class="flex-1 py-2 rounded-lg border border-white/10 text-xs">生活</button>
+            </div>
+            <button onclick="saveSheet()" class="w-full py-4 bg-cyan-600 rounded-xl font-bold mb-3">儲存</button>
+            <button onclick="deleteSheet()" id="sheet-del" class="w-full py-4 text-red-500 font-bold">刪除日程</button>
+            <button onclick="closeSheet()" class="w-full py-2 text-gray-500 text-sm">取消</button>
+        </div>
+    </div>
+
     <script>
-        // --- 1. 資料持久化與狀態管理 ---
-        const state = {
-            selectedTab: 2,
+        let state = {
+            tab: 2,
             apiKey: localStorage.getItem('apiKey') || '',
             bgURL: localStorage.getItem('bgURL') || 'https://images.unsplash.com/photo-1542051841857-5f90071e7989?q=80&w=2070',
-            lawScore: parseInt(localStorage.getItem('lawScore')) || 0,
-            vocabCount: parseInt(localStorage.getItem('vocabCount')) || 0,
+            law: parseInt(localStorage.getItem('law')) || 0,
             goals: JSON.parse(localStorage.getItem('goals')) || [
-                {subject: "行政法", total: 50, completed: 0},
-                {subject: "政治學", total: 30, completed: 0},
-                {subject: "行政學", total: 40, completed: 0},
-                {subject: "公共政策", total: 20, completed: 0}
+                {subject:"行政法", total:50, completed:0}, {subject:"政治學", total:30, completed:0},
+                {subject:"行政學", total:40, completed:0}, {subject:"公共政策", total:20, completed:0}
             ],
             events: JSON.parse(localStorage.getItem('events')) || [],
             dailyLogs: JSON.parse(localStorage.getItem('dailyLogs')) || {},
-            pomodoroDone: parseInt(localStorage.getItem('pomodoroDone')) || 0,
-            pomodoroFailed: parseInt(localStorage.getItem('pomodoroFailed')) || 0,
-            
-            userReflection: '',
-            reportMsg: '戰略報告準備中...',
-            analysisTime: '',
-            isLoading: false,
-            
-            isFocusing: false,
-            timeLeft: 1500,
-            totalTime: 1500,
-            focusTaskName: '',
-            startTime: null
+            done: parseInt(localStorage.getItem('done')) || 0,
+            failed: parseInt(localStorage.getItem('failed')) || 0,
+            reflection: '', 
+            reportMsg: '戰略報告準備中...', 
+            focusMsg: '全職考生，你沒有退路。', 
+            time: '', loading: false,
+            isActive: false, timeLeft: 1500, totalTime: 1500, focusTask: '',
+            editingId: null, sheetType: 'Study'
         };
 
         function sync() {
-            localStorage.setItem('apiKey', state.apiKey);
-            localStorage.setItem('bgURL', state.bgURL);
-            localStorage.setItem('goals', JSON.stringify(state.goals));
-            localStorage.setItem('lawScore', state.lawScore);
-            localStorage.setItem('vocabCount', state.vocabCount);
-            localStorage.setItem('events', JSON.stringify(state.events));
-            localStorage.setItem('dailyLogs', JSON.stringify(state.dailyLogs));
-            localStorage.setItem('pomodoroDone', state.pomodoroDone);
-            localStorage.setItem('pomodoroFailed', state.pomodoroFailed);
+            localStorage.setItem('apiKey', state.apiKey); localStorage.setItem('bgURL', state.bgURL);
+            localStorage.setItem('law', state.law); localStorage.setItem('goals', JSON.stringify(state.goals));
+            localStorage.setItem('events', JSON.stringify(state.events)); localStorage.setItem('dailyLogs', JSON.stringify(state.dailyLogs));
+            localStorage.setItem('done', state.done); localStorage.setItem('failed', state.failed);
         }
 
-        // --- 2. AI 診斷連線 (Gemini 2.5-flash) ---
+        // --- 核心 AI 邏輯 (1:1 復刻您的 Prompt) ---
         async function fetchAI(type, reason = "") {
             if (!state.apiKey) return;
-            if (type === 'report') state.isLoading = true;
-            render();
+            if (type === 'report') state.loading = true; render();
+            
+            const now = new Date();
+            const currentTimeStr = now.toLocaleString();
+            const todayKey = now.toISOString().split('T')[0].replace(/-/g,'');
+            const todayTasks = state.events.filter(e => e.date.startsWith(todayKey) && e.isDone).map(e => e.title).join(', ');
 
-            const nowStr = new Date().toLocaleString('zh-TW', { hour12: false });
-            const todayKey = new Date().toISOString().split('T')[0].replace(/-/g, '');
-            const todayTasks = state.events.filter(e => e.date.startsWith(todayKey) && e.isDone).map(e => e.t).join(', ');
+            // 歷史校正資料 histLog
+            const getPastKey = (days) => {
+                const d = new Date(); d.setDate(d.getDate() - days);
+                return d.toISOString().split('T')[0].replace(/-/g,'');
+            };
+            const histLog = `昨日：${state.dailyLogs[getPastKey(1)]?.summary || "無"}, 前日：${state.dailyLogs[getPastKey(2)]?.summary || "無"}`;
 
             let prompt = "";
             if (type === 'jab') {
-                prompt = `身分：高冷嚴厲教官。時間：${nowStr}。事件：${reason}。累計成功：${state.pomodoroDone}。請給予一句 20 字內回饋（Markdown **粗體**）。`;
+                prompt = `身分：高冷嚴厲教官。分析時間：${currentTimeStr}。任務狀態：${reason}。成功：${state.done}。請給予一句 20 字內的反饋（請使用 Markdown **粗體**）。`;
             } else {
-                prompt = `【學生檔案】：高考全職考生，28歲，存款瀕臨耗盡，沒有退路。
-【分析時間】：${nowStr}
-【今日戰果】：完課：${todayTasks || '無'}。專注成功：${state.pomodoroDone}。分心失敗：${state.pomodoroFailed}。
-【學生自省】：${state.userReflection || "（該生今日未進行反思）"}
-【指令】：
-1. 產出 200 字深度學習診斷。Markdown **粗體**。
-2. 針對存款危機感與28歲的社會壓力給予精確打擊或強效動力。
-3. 剖析性格與習性。
-【格式要求】：
+                prompt = `【身分】高考全職考生，28歲，之前賺的存款都快花光了。
+【分析當下時間】：${currentTimeStr}
+【今日數據】：完課：${todayTasks}。專注成功：${state.done}。失敗：${state.failed}。
+【使用者本日反思】：${state.reflection || "（無）"}
+【歷史校正資料】：${histLog}。
+【要求】：
+1. 產出 200 字內深度學習診斷。點出不足與做得好的地方。Markdown **粗體** 關鍵字。
+2. 回應使用者的「本日反思」並對話。
+3. 進行性格與習性分析。
+4. 會根據當下時間給予適當的回饋
+5. 會參考過去五天的histLog給予整體回饋
+6. 目標在督促學習和令人有動力學習
+【結尾格式】：
 SCORE: [0-100]
-LOG: [50字總結]
-CHAR: [性格剖析]`;
+LOG: [50字今日總結]
+CHAR: [性格習性分析，不超過100字]`;
             }
 
             try {
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${state.apiKey}`, {
-                    method: 'POST',
-                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    method: 'POST', body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
                 });
                 const data = await res.json();
-                const text = data.candidates[0].content.parts[0].text;
-
+                const fullMsg = data.candidates[0].content.parts[0].text;
+                
                 if (type === 'report') {
-                    state.analysisTime = nowStr;
-                    state.reportMsg = text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>').split("SCORE:")[0];
-                    const score = text.match(/SCORE:\s*(\d+)/)?.[1] || 0;
-                    const log = text.match(/LOG:\s*(.*?)CHAR:/s)?.[1] || "";
-                    const char = text.match(/CHAR:\s*(.*)/s)?.[1] || "";
-                    state.dailyLogs[todayKey] = { score: parseInt(score), summary: log, characterAnalysis: char };
-                    state.userReflection = '';
+                    state.time = currentTimeStr;
+                    const comps = fullMsg.split("SCORE:");
+                    state.reportMsg = (comps[0] || fullMsg).replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+                    
+                    if (comps.length > 1) {
+                        const scComp = comps[1].split("LOG:");
+                        const score = parseInt(scComp[0].trim()) || 0;
+                        const logComp = scComp.length > 1 ? scComp[1].split("CHAR:") : [];
+                        const log = logComp[0]?.trim() || "";
+                        const char = logComp.length > 1 ? logComp[1].trim() : "尚無分析資料。";
+                        state.dailyLogs[todayKey] = { score, summary: log, characterAnalysis: char };
+                        state.reflection = '';
+                    }
                 } else {
-                    console.log("AI Jab:", text);
+                    state.focusMsg = fullMsg.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
                 }
-            } catch (e) { state.reportMsg = "報告生成失敗，請確認 API 連線。"; }
-            
-            state.isLoading = false;
-            sync();
-            render();
+            } catch (e) { console.error(e); }
+            state.loading = false; sync(); render();
         }
 
-        // --- 3. 視圖控制器 ---
         function render() {
             document.getElementById('main-bg').style.backgroundImage = `url('${state.bgURL}')`;
-            const v = document.getElementById('view');
-            const todayKey = new Date().toISOString().split('T')[0].replace(/-/g, '');
+            const view = document.getElementById('view-builder');
+            const todayKey = new Date().toISOString().split('T')[0].replace(/-/g,'');
 
-            if (state.selectedTab === 0) { // 日程分頁
-                v.innerHTML = `
-                    <h2 class="text-2xl font-bold mb-6 flex items-center gap-2"><i class="bi bi-calendar-week text-cyan-400"></i>日程規劃</h2>
-                    <div class="space-y-4">
-                        ${state.events.length === 0 ? '<p class="text-gray-500 text-center py-10">尚無日程，點擊下方新增</p>' : ''}
-                        ${state.events.map((e, i) => `
-                            <div class="glass p-4 rounded-2xl flex items-center gap-4 transition-all">
-                                <div onclick="toggleEvent(${i})" class="btn-press">
-                                    <i class="bi ${e.isDone ? 'bi-check-circle-fill text-green-400' : 'bi-circle text-gray-500'} text-2xl"></i>
-                                </div>
-                                <div class="flex-1">
-                                    <p class="font-bold ${e.isDone ? 'line-through text-gray-500' : ''}">${e.title}</p>
-                                    <p class="text-[10px] text-gray-400 font-mono italic">${e.type === 'Study' ? '戰術任務' : '生活維修'}</p>
-                                </div>
-                                <button onclick="deleteEvent(${i})" class="text-red-900/50 hover:text-red-500 px-2"><i class="bi bi-trash3"></i></button>
-                            </div>
-                        `).join('')}
+            if (state.tab === 2) { // 看板
+                view.innerHTML = `
+                    <h1 class="text-3xl font-black italic mb-6">戰力診斷中心</h1>
+                    <textarea oninput="state.reflection=this.value" class="w-full p-4 rounded-2xl h-24 text-sm mb-4 glass" placeholder="報告今天的心情...">${state.reflection}</textarea>
+                    <div class="glass p-5 mb-6 border-l-4 border-cyan-400">
+                        <div class="flex justify-between text-[10px] text-gray-500 mb-2"><span>學習診斷報告</span><span>${state.time}</span></div>
+                        <div class="report-content">${state.loading ? '正在計算勝率...' : state.reportMsg}</div>
                     </div>
-                    <button onclick="addEvent()" class="w-full py-4 glass border-dashed border-2 border-white/10 rounded-2xl mt-6 text-gray-400 font-bold">+ 加入戰術日程</button>
+                    <div class="glass p-5 mb-6 space-y-4">
+                        ${state.goals.map((g,i) => `
+                            <div class="flex justify-between text-sm items-center"><span>${g.subject}</span><div class="flex items-center gap-4"><button onclick="addGoal(${i},-1)">-</button><span class="w-14 text-center font-bold text-cyan-400">${g.completed}/${g.total}</span><button onclick="addGoal(${i},1)">+</button></div></div>
+                        `).join('')}
+                        <div class="border-t border-white/5 pt-4 flex justify-between text-sm items-center"><span>法學緒論</span><div class="flex items-center gap-4"><button onclick="addLaw(-25)">-</button><span class="w-14 text-center font-bold text-cyan-400">${state.law}/100</span><button onclick="addLaw(25)">+</button></div></div>
+                    </div>
+                    <button onclick="fetchAI('report')" class="w-full py-5 bg-cyan-600/50 rounded-2xl font-black transition-all active:scale-95">提交反思並產出戰術報告</button>
                 `;
-            } 
-            else if (state.selectedTab === 1) { // 專注分頁
-                const radius = 45;
-                const circumference = 2 * Math.PI * radius;
-                const offset = circumference - (state.timeLeft / state.totalTime) * circumference;
-                v.innerHTML = `
-                    <div class="flex flex-col items-center justify-center min-h-[70vh]">
-                        <h2 class="text-xl font-bold mb-8 italic">專注：拒絕平庸</h2>
-                        <input id="f-task" class="w-full max-w-xs text-center p-4 rounded-2xl mb-12 glass" placeholder="輸入當前攻克目標..." value="${state.focusTaskName}">
-                        
-                        <div class="relative w-72 h-72 flex items-center justify-center">
-                            <svg class="absolute inset-0 w-full h-full progress-ring" viewBox="0 0 100 100">
-                                <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="3"/>
-                                <circle class="progress-ring-circle" cx="50" cy="50" r="45" fill="none" stroke="#22d3ee" stroke-width="4" 
-                                    stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
-                            </svg>
-                            <span class="text-6xl font-mono font-black tracking-tighter text-cyan-400">
-                                ${Math.floor(state.timeLeft/60)}:${String(state.timeLeft%60).padStart(2, '0')}
-                            </span>
+            }
+            else if (state.tab === 1) { // 專注
+                const offset = 283 - (state.timeLeft / state.totalTime) * 283;
+                view.innerHTML = `
+                    <div class="flex flex-col items-center pt-10">
+                        <h2 class="text-xl font-bold mb-8 italic">專注模式</h2>
+                        <input id="f-task" class="w-full text-center p-4 rounded-xl mb-10 glass" placeholder="現在要做什麼？" value="${state.focusTask}">
+                        <div class="relative w-64 h-64 flex items-center justify-center mb-10">
+                            <svg class="absolute inset-0 w-full h-full" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="4"/><circle class="progress-ring-circle" cx="50" cy="50" r="45" fill="none" stroke="#22d3ee" stroke-width="4" stroke-dasharray="283" stroke-dashoffset="${offset}" stroke-linecap="round"/></svg>
+                            <span class="text-6xl font-mono font-bold">${Math.floor(state.timeLeft/60)}:${String(state.timeLeft%60).padStart(2,'0')}</span>
                         </div>
-
-                        <div class="flex items-center gap-10 mt-12">
-                            <button onclick="adjT(-300)" class="text-gray-500 font-bold btn-press">- 5分</button>
-                            <button onclick="toggleFocus()" class="bg-cyan-600 hover:bg-cyan-500 text-white w-20 h-20 rounded-full flex items-center justify-center shadow-lg shadow-cyan-900/40 btn-press">
-                                <i class="bi ${state.isFocusing ? 'bi-pause-fill' : 'bi-play-fill'} text-3xl"></i>
-                            </button>
-                            <button onclick="adjT(300)" class="text-gray-500 font-bold btn-press">+ 5分</button>
+                        <div class="text-cyan-400 italic text-center px-10 h-12 mb-8 report-content">${state.focusMsg}</div>
+                        <div class="flex gap-10 items-center">
+                            <button onclick="adjT(-300)" class="text-gray-500 font-bold">-5</button>
+                            <button onclick="toggleFocus()" class="bg-cyan-600 w-16 h-16 rounded-full flex items-center justify-center text-2xl shadow-lg"><i class="bi ${state.isActive ? 'bi-pause-fill' : 'bi-play-fill'}"></i></button>
+                            <button onclick="adjT(300)" class="text-gray-500 font-bold">+5</button>
                         </div>
-                        <button onclick="abandonFocus()" class="mt-12 text-red-500/40 text-xs font-bold tracking-widest hover:text-red-500 transition-colors uppercase">放棄本次專注</button>
+                        <button onclick="abandon()" class="mt-12 text-red-500/40 text-xs font-bold tracking-widest">放棄專注</button>
                     </div>
                 `;
             }
-            else if (state.selectedTab === 2) { // 看板分頁
-                v.innerHTML = `
-                    <div class="flex justify-between items-end mb-8">
-                        <div>
-                            <h1 class="text-3xl font-black italic tracking-tighter">戰力診斷中心</h1>
-                            <p class="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Combat Readiness Dashboard</p>
+            else if (state.tab === 0) { // 日程
+                view.innerHTML = `<h2 class="text-2xl font-bold mb-6 italic">戰術日程</h2><div class="space-y-4">
+                    ${state.events.filter(e => e.date.startsWith(todayKey)).map((e, i) => `
+                        <div class="glass p-4 rounded-2xl flex items-center gap-4">
+                            <div onclick="toggleDone('${e.id}')"><i class="bi ${e.isDone ? 'bi-check-circle-fill text-green-400' : 'bi-circle text-gray-500'} text-2xl"></i></div>
+                            <div class="flex-1" onclick="openSheet('${e.id}')"><p class="font-bold ${e.isDone ? 'line-through text-gray-500' : ''}">${e.title}</p></div>
                         </div>
-                        <div class="text-right">
-                            <span class="text-red-500 font-black text-xl">2026/01/31</span>
-                            <p class="text-[8px] text-gray-500 uppercase font-bold">決戰日期</p>
-                        </div>
-                    </div>
-
-                    <div class="mb-6">
-                        <label class="text-[10px] font-bold text-gray-500 mb-2 block uppercase">本日戰後反思</label>
-                        <textarea oninput="state.userReflection=this.value" class="w-full p-4 glass rounded-2xl text-sm h-28 leading-relaxed" placeholder="教官，我今天感覺...">${state.userReflection}</textarea>
-                    </div>
-
-                    <div class="glass p-6 mb-8 border-l-4 border-cyan-400 bg-black/60 relative overflow-hidden">
-                        <div class="flex justify-between items-center mb-4">
-                            <span class="text-cyan-400 font-black text-xs italic uppercase tracking-wider">深度戰術診斷報告</span>
-                            <span class="text-[9px] font-mono text-gray-600">${state.analysisTime || 'NO DATA'}</span>
-                        </div>
-                        <div class="report-content text-sm leading-7 text-gray-200">
-                            ${state.isLoading ? '<div class="flex items-center gap-3 py-4"><div class="animate-spin rounded-full h-4 w-4 border-2 border-cyan-400 border-t-transparent"></div>正在計算勝率...</div>' : state.reportMsg}
-                        </div>
-                    </div>
-
-                    <div class="glass p-6 mb-8 space-y-5">
-                        ${state.goals.map((g, i) => `
-                            <div class="flex items-center justify-between">
-                                <span class="text-sm font-bold text-gray-300">${g.subject}</span>
-                                <div class="flex items-center gap-4">
-                                    <button onclick="addG(${i},-1)" class="w-6 h-6 rounded bg-white/5 flex items-center justify-center">-</button>
-                                    <span class="w-16 text-center font-mono font-bold text-cyan-400">${g.completed}/${g.total}</span>
-                                    <button onclick="addG(${i},1)" class="w-6 h-6 rounded bg-white/5 flex items-center justify-center text-cyan-400">+</button>
-                                </div>
-                            </div>
-                        `).join('')}
-                        <div class="h-px bg-white/5 my-2"></div>
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm font-bold text-gray-300">法學緒論</span>
-                            <div class="flex items-center gap-4">
-                                <button onclick="addL(-25)" class="w-6 h-6 rounded bg-white/5 flex items-center justify-center">-</button>
-                                <span class="w-16 text-center font-mono font-bold text-cyan-400">${state.lawScore}/100</span>
-                                <button onclick="addL(25)" class="w-6 h-6 rounded bg-white/5 flex items-center justify-center text-cyan-400">+</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <button onclick="fetchAI('report')" class="w-full py-5 bg-cyan-600/40 hover:bg-cyan-600/60 rounded-2xl font-black tracking-widest text-white shadow-xl transition-all btn-press">
-                        提交反思並啟動深度診斷
-                    </button>
-                `;
+                    `).join('')}
+                </div><button onclick="openSheet(null)" class="w-full py-5 border-2 border-dashed border-white/10 rounded-2xl mt-10 text-gray-500 font-bold">+ 加入新日程</button>`;
             }
-            else if (state.selectedTab === 3) { // 學歷分頁 (時間軸)
+            else if (state.tab === 3) { // 學歷
                 const log = state.dailyLogs[todayKey];
-                v.innerHTML = `
-                    <h2 class="text-2xl font-bold mb-8">學習與性格履歷</h2>
-                    ${log ? `
+                view.innerHTML = `<h2 class="text-2xl font-bold mb-8 italic">學習與性格履歷</h2>`;
+                if (log) {
+                    view.innerHTML += `
                         <div class="glass p-6 mb-6">
-                            <div class="flex justify-between items-center mb-6">
-                                <span class="text-gray-400 font-bold">教官本日評分</span>
-                                <span class="text-4xl font-black text-green-400">${log.score}</span>
+                            <div class="flex justify-between items-center mb-6"><span class="text-gray-400 font-bold text-xs uppercase">本日評分</span><span class="text-4xl font-black text-green-400">${log.score}</span></div>
+                            <div class="text-sm space-y-4">
+                                <div><p class="text-gray-500 text-[10px] font-bold mb-1 uppercase">【總結】</p><p class="text-gray-200">${log.summary}</p></div>
+                                <div class="italic text-cyan-200/60"><p class="text-gray-500 text-[10px] font-bold mb-1 uppercase">【性格分析】</p><p>${log.characterAnalysis}</p></div>
                             </div>
-                            <div class="space-y-4 mb-6">
-                                <div class="text-sm"><p class="text-gray-500 text-[10px] font-bold uppercase mb-1">戰報總結</p><p class="text-gray-200 leading-6">${log.summary}</p></div>
-                                <div class="text-sm italic"><p class="text-gray-500 text-[10px] font-bold uppercase mb-1">性格習性分析</p><p class="text-cyan-200/70 leading-6">${log.characterAnalysis}</p></div>
-                            </div>
-                            <hr class="border-white/5 mb-6">
-                            <p class="text-[10px] font-bold text-gray-500 uppercase mb-4 tracking-widest">本日實戰時間軸</p>
-                            <div class="space-y-3">
-                                ${state.events.filter(e => e.date.startsWith(todayKey)).length === 0 ? '<p class="text-gray-600 text-xs italic">無行動記錄</p>' : ''}
-                                ${state.events.filter(e => e.date.startsWith(todayKey)).sort((a,b) => a.date - b.date).map(e => `
-                                    <div class="flex items-center gap-4 text-xs">
-                                        <span class="text-gray-500 font-mono">${e.date.slice(8,10)}:${e.date.slice(10,12)}</span>
-                                        <span class="flex-1 text-gray-300 font-medium">${e.title}</span>
-                                        <span>${e.isDone ? '<i class="bi bi-check2 text-green-400"></i>' : '<i class="bi bi-x text-red-500"></i>'}</span>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-                    ` : '<div class="text-center py-20 text-gray-500">請先完成今日診斷以生成報告</div>'}
-                `;
+                        </div>`;
+                } else { view.innerHTML += `<p class="text-center text-gray-600 py-20 italic">本日尚無診斷數據</p>`; }
             }
-            else if (state.selectedTab === 4) { // 設定分頁
-                v.innerHTML = `
-                    <h2 class="text-2xl font-bold mb-10">戰情設定</h2>
-                    <div class="space-y-8">
-                        <div>
-                            <label class="text-[10px] font-bold text-gray-500 uppercase mb-2 block tracking-widest">Gemini API Key</label>
-                            <input type="password" onchange="state.apiKey=this.value;sync()" class="w-full p-4 glass rounded-2xl font-mono text-sm" value="${state.apiKey}" placeholder="在此貼上金鑰...">
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold text-gray-500 uppercase mb-2 block tracking-widest">主背景 URL</label>
-                            <input onchange="state.bgURL=this.value;sync();render()" class="w-full p-4 glass rounded-2xl text-xs" value="${state.bgURL}">
-                        </div>
-                    </div>
-                `;
+            else if (state.tab === 4) { // 設定
+                view.innerHTML = `<h2 class="text-2xl font-bold mb-10 italic">設定</h2><div class="space-y-8"><div><label class="text-[10px] text-gray-500 uppercase font-bold mb-2 block">GEMINI API KEY</label><input type="password" onchange="state.apiKey=this.value;sync()" class="w-full p-4 glass rounded-xl" value="${state.apiKey}"></div><div><label class="text-[10px] text-gray-500 uppercase font-bold mb-2 block">背景圖片 URL</label><input onchange="state.bgURL=this.value;sync();render()" class="w-full p-4 glass rounded-xl text-xs" value="${state.bgURL}"></div></div>`;
             }
 
-            // 更新底部按鈕顏色
-            for(let i=0; i<5; i++) {
-                document.getElementById('t'+i).className = `flex flex-col items-center gap-1 transition-all ${state.selectedTab === i ? 'tab-active' : 'text-gray-500'}`;
-            }
+            for(let i=0; i<5; i++) document.getElementById('t'+i).className = `flex flex-col items-center gap-1 ${state.tab===i?'tab-active':'text-gray-600'}`;
         }
 
-        // --- 4. 控制邏輯 ---
-        function switchTab(i) {
-            if (state.isFocusing && i !== 1) { abandonFocus(); }
-            state.selectedTab = i;
-            render();
+        // --- 控制邏輯 ---
+        function tab(i) { if(state.isActive && i!==1) abandon(); state.tab=i; render(); }
+        function addGoal(i, v) { state.goals[i].completed = Math.max(0, state.goals[i].completed + v); sync(); render(); }
+        function addLaw(v) { state.law = Math.max(0, Math.min(100, state.law + v)); sync(); render(); }
+        function openSheet(id) { state.editingId = id; const sheet = document.getElementById('sheet'); sheet.classList.remove('hidden'); if(id) { const e = state.events.find(ev => ev.id === id); document.getElementById('sheet-input').value = e.title; setSheetType(e.type); } }
+        function closeSheet() { document.getElementById('sheet').classList.add('hidden'); }
+        function setSheetType(t) { state.sheetType = t; document.getElementById('st-Study').className = `flex-1 py-2 rounded-lg border text-xs ${t==='Study'?'bg-blue-600 border-blue-400':'border-white/10 text-gray-500'}`; document.getElementById('st-Life').className = `flex-1 py-2 rounded-lg border text-xs ${t==='Life'?'bg-orange-600 border-orange-400':'border-white/10 text-gray-500'}`; }
+        function saveSheet() { const title = document.getElementById('sheet-input').value; if(!title) return; if(state.editingId) { const idx = state.events.findIndex(e => e.id === state.editingId); state.events[idx].title = title; state.events[idx].type = state.sheetType; } else { const d = new Date().toISOString().replace(/\D/g,'').slice(0,12); state.events.unshift({id: Math.random().toString(), title, date: d, type: state.sheetType, isDone: false}); } sync(); closeSheet(); render(); }
+        function deleteSheet() { state.events = state.events.filter(e => e.id !== state.editingId); sync(); closeSheet(); render(); }
+        function toggleDone(id) { const idx = state.events.findIndex(e => e.id === id); state.events[idx].isDone = !state.events[idx].isDone; sync(); render(); }
+
+        let timer;
+        function toggleFocus() { 
+            state.isActive = !state.isActive; 
+            state.focusTask = document.getElementById('f-task')?.value || "戰術攻堅"; 
+            if(state.isActive) { 
+                timer = setInterval(() => { 
+                    if(state.timeLeft > 0) { state.timeLeft--; render(); } 
+                    else { 
+                        clearInterval(timer); state.isActive=false; state.done++; state.timeLeft=state.totalTime; 
+                        fetchAI('jab', "任務達成："+state.focusTask); sync(); render(); 
+                    } 
+                }, 1000); 
+            } else clearInterval(timer); 
+            render(); 
+        }
+        function adjT(v) { if(!state.isActive) { state.totalTime = Math.max(60, state.totalTime + v); state.timeLeft = state.totalTime; render(); } }
+        function abandon() { 
+            clearInterval(timer); state.isActive = false; state.failed++; 
+            state.events.unshift({id: Math.random().toString(), title: state.focusTask || "未命名任務", date: new Date().toISOString().replace(/\D/g,'').slice(0,12), type: 'Study', isDone: false});
+            state.timeLeft = state.totalTime; 
+            fetchAI('jab', "任務失敗："+state.focusTask); sync(); render(); 
         }
 
-        function addG(i, v) { state.goals[i].completed = Math.max(0, state.goals[i].completed + v); sync(); render(); }
-        function addL(v) { state.lawScore = Math.max(0, Math.min(100, state.lawScore + v)); sync(); render(); }
-
-        function addEvent() {
-            const t = prompt("請輸入行動任務名稱：");
-            if (t) {
-                const now = new Date();
-                const timeKey = now.toISOString().split('T')[0].replace(/-/g, '') + String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0');
-                state.events.unshift({id: Math.random(), title: t, date: timeKey, isDone: false, type: 'Study'});
-                sync(); render();
-            }
-        }
-        function deleteEvent(i) { state.events.splice(i, 1); sync(); render(); }
-        function toggleEvent(i) { state.events[i].isDone = !state.events[i].isDone; sync(); render(); }
-
-        // --- 5. 專注計時器邏輯 ---
-        let timerInt;
-        function toggleFocus() {
-            state.isFocusing = !state.isFocusing;
-            state.focusTaskName = document.getElementById('f-task')?.value || "自主攻堅任務";
-            if (state.isFocusing) {
-                state.startTime = new Date();
-                timerInt = setInterval(() => {
-                    if (state.timeLeft > 0) { state.timeLeft--; render(); }
-                    else { finishFocus(); }
-                }, 1000);
-            } else { clearInterval(timerInt); }
-            render();
-        }
-
-        function adjT(v) {
-            if (!state.isFocusing) {
-                state.totalTime = Math.max(60, state.totalTime + v);
-                state.timeLeft = state.totalTime;
-                render();
-            }
-        }
-
-        function abandonFocus() {
-            clearInterval(timerInt);
-            state.isFocusing = false;
-            state.pomodoroFailed++;
-            state.timeLeft = state.totalTime;
-            fetchAI('jab', `專注失敗: ${state.focusTaskName}`);
-            sync(); render();
-        }
-
-        function finishFocus() {
-            clearInterval(timerInt);
-            state.isFocusing = false;
-            state.pomodoroDone++;
-            state.timeLeft = state.totalTime;
-            fetchAI('jab', `專注達成: ${state.focusTaskName}`);
-            sync(); render();
-        }
-
-        // 初始化渲染
         render();
     </script>
 </body>
