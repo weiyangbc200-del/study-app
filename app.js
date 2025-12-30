@@ -525,7 +525,7 @@ async function fetchDashboardReport(){
   const goalStatus = buildGoalStatusText();
 
   const prompt = `
-【身分】高考全職考生，28歲，存款快花光。
+【身分】一個全職考生，即將面臨考試。
 【分析當下時間】：${currentTimeStr}
 
 【今日任務完成】完課：${todayDoneList || "（無）"}。
@@ -541,7 +541,7 @@ ${goalStatus.longLines}
 【歷史校正資料】：${histLog}。
 
 【要求】：
-1) 220 字內深度學習診斷，必須把「每日目標達成度」與「長期目標進度/風險」納入評估（Markdown **粗體**）。
+1) 180 字內深度學習診斷，必須把「每日目標達成度」與「長期目標進度/風險」納入評估（Markdown **粗體**）。
 2) 回應反思並對話。
 3) 性格/習性分析（<=100字）。
 4) 給出具體下一步（可執行、可量化）。
