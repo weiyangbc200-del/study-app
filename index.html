@@ -1,29 +1,75 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>戰力診斷系統</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
+  <!-- 背景（可在設定改 URL） -->
+  <div id="bg"></div>
+  <div id="bgOverlay"></div>
 
-<div id="app">
-  <header id="header">
-    <h1 id="page-title">戰力診斷中心</h1>
-  </header>
+  <div id="app">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="title" id="pageTitle">戰力診斷中心</div>
+        <div class="subtitle" id="pageSubtitle"></div>
+      </div>
+      <div class="topbar-right" id="topbarRight"></div>
+    </header>
 
-  <main id="content"></main>
+    <main id="content" class="content"></main>
 
-  <nav id="tabbar">
-    <button data-tab="calendar">日程</button>
-    <button data-tab="focus">專注</button>
-    <button data-tab="dashboard">看板</button>
-    <button data-tab="history">學歷</button>
-    <button data-tab="settings">設定</button>
-  </nav>
-</div>
+    <nav class="tabbar" id="tabbar">
+      <button class="tab" data-tab="calendar">日程</button>
+      <button class="tab" data-tab="focus">專注</button>
+      <button class="tab" data-tab="dashboard">看板</button>
+      <button class="tab" data-tab="history">學歷</button>
+      <button class="tab" data-tab="settings">設定</button>
+    </nav>
+  </div>
 
-<script src="app.js"></script>
+  <!-- 新增/編輯日程 modal -->
+  <dialog id="taskDialog" class="dialog">
+    <form method="dialog" class="dialog-form" id="taskForm">
+      <div class="dialog-title" id="taskDialogTitle">新增日程規劃</div>
+
+      <label class="label">內容</label>
+      <input id="taskTitle" class="input" placeholder="內容..." />
+
+      <label class="label">類型</label>
+      <div class="segmented">
+        <button type="button" class="seg" data-type="Study">讀書計劃</button>
+        <button type="button" class="seg" data-type="Life">生活計劃</button>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label class="label">開始</label>
+          <input id="taskStart" class="input" type="time" />
+        </div>
+        <div>
+          <label class="label">結束</label>
+          <input id="taskEnd" class="input" type="time" />
+        </div>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn danger" id="btnDeleteTask">刪除</button>
+        <div class="spacer"></div>
+        <button class="btn" value="cancel">取消</button>
+        <button type="button" class="btn primary" id="btnSaveTask">儲存</button>
+      </div>
+
+      <div class="dialog-hint">
+        ※ 資料會存在你的瀏覽器 localStorage。若清除瀏覽器資料會消失。
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
 </body>
 </html>
