@@ -366,6 +366,30 @@ body{
   border: 1px solid rgba(255,255,255,0.08);
 }
 
+/* ===== Fix iOS time input overlap in dialog ===== */
+.dialog .timeGrid{
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); /* 關鍵：允許欄位縮小 */
+}
+
+/* Grid item 預設 min-width:auto 會害它不肯縮 */
+.dialog .timeGrid > div{
+  min-width: 0;
+}
+
+/* iOS time input 常見：本體也要允許縮 */
+.dialog .timeGrid input[type="time"]{
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 螢幕太窄就直接上下排，保證不重疊 */
+@media (max-width: 420px){
+  .dialog .timeGrid{
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ===== Dialog (Add/Edit) ===== */
 .dialog{
   border: 1px solid rgba(255,255,255,0.14);
