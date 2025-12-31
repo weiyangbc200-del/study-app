@@ -789,7 +789,7 @@ function renderFocus(){
   return `
     <div class="card">
       <div class="centerText">
-        <div class="small">現在要做什麼？</div>
+        <div class="small">輸入任務內容</div>
         <input id="focusTaskName" class="input centerText" value="${escapeAttr(state.focusTaskName || "")}" placeholder="現在要做什麼？" />
       </div>
     </div>
