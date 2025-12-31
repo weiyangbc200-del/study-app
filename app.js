@@ -618,10 +618,10 @@ function setTab(tab){
 
 function renderTopbar(){
   const map = {
-    calendar: ["日程規劃", "用月曆抓節奏，點選日期管理任務"],
-    focus: ["專注模式", "開始就別停，專注於每一個當下"],
-    dashboard: ["戰力診斷中心", "提交反思 → 產出教官戰術報告"],
-    history: ["學習與性格履歷", "用分數點亮你的月曆"],
+    calendar: ["日程規劃", "點選日期管理任務"],
+    focus: ["專注模式", "專注於每一個當下"],
+    dashboard: ["學習診斷中心", "產出學習診斷報告"],
+    history: ["學習履歷", "記錄每一天的學習歷程"],
     settings: ["設定", "API Key / 背景 / 目標 / 色調 / 資料管理"],
   };
   const [t, s] = map[state.tab] || ["", ""];
@@ -735,7 +735,7 @@ function renderCalendar(){
       </div>
 
       <div class="card" style="margin-top:12px; background:var(--glass2)">
-        <div class="small">起床 / 睡覺（手動輸入，避免誤觸；可重置）</div>
+        <div class="small">起床 / 睡覺</div>
 
         <div class="row" style="margin-top:10px; gap:10px; align-items:center;">
           <div style="min-width:68px;">起床</div>
@@ -749,17 +749,6 @@ function renderCalendar(){
           <input class="input mono" id="sleepInput" type="time" value="${escapeAttr(ws.sleep || "")}" style="flex:1" />
           <button class="btn primary" data-action="saveSleep">儲存</button>
           <button class="btn" data-action="sleepNow">用現在</button>
-        </div>
-
-        <div class="row" style="margin-top:10px; gap:10px;">
-          <button class="btn danger" data-action="resetWakeSleep">重置清空</button>
-          <span class="small" style="opacity:0.85;">
-            目前：起床 <b class="mono">${escapeHtml(wakeShow)}</b> ／ 睡覺 <b class="mono">${escapeHtml(sleepShow)}</b>
-          </span>
-        </div>
-
-        <div class="small" style="margin-top:10px; opacity:0.85;">
-          ※ 「用現在」會跳確認；避免手滑改掉。每日資料會被匯出到 JSON。
         </div>
       </div>
 
