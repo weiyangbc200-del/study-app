@@ -172,7 +172,16 @@ body{
 
 .row{ display:flex; gap:10px; align-items:center; }
 .row-between{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
-.grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+/* ✅ Grid：改成 minmax(0,1fr) 防止被內容撐爆造成重疊 */
+.grid2{
+  display:grid;
+  grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+  gap:10px;
+}
+.grid2 > div{ min-width:0; }
+.grid2 .input{ min-width:0; }
+
 .spacer{ flex:1; }
 
 .pill{
@@ -366,45 +375,32 @@ body{
   border: 1px solid rgba(255,255,255,0.08);
 }
 
-/* ===== Fix iOS time input overlap in dialog ===== */
-.dialog .timeGrid{
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); /* 關鍵：允許欄位縮小 */
-}
-
-/* Grid item 預設 min-width:auto 會害它不肯縮 */
-.dialog .timeGrid > div{
-  min-width: 0;
-}
-
-/* iOS time input 常見：本體也要允許縮 */
-.dialog .timeGrid input[type="time"]{
-  min-width: 0;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-/* 螢幕太窄就直接上下排，保證不重疊 */
-@media (max-width: 420px){
-  .dialog .timeGrid{
-    grid-template-columns: 1fr;
-  }
-}
-
 /* ===== Dialog (Add/Edit) ===== */
+/* ✅ 配合手機視窗大小 + safe-area + 內容內滾，避免整個變超長 */
 .dialog{
   border: 1px solid rgba(255,255,255,0.14);
   border-radius: 18px;
   background: rgba(12,12,14,0.92);
   color: var(--text);
   padding:0;
-  width:min(520px, 92vw);
+  width: min(520px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px) saturate(1.15);
   -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  overflow:hidden; /* 讓內部滾，不讓外框爆 */
 }
 .dialog::backdrop{ background: rgba(0,0,0,0.62); }
 
-.dialog-form{ padding:14px; }
+/* ✅ 內部可滾 */
+.dialog-form{
+  padding: clamp(12px, 3vw, 14px);
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow:auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .dialog-title{ font-weight:900; margin-bottom:12px; }
 .label{ display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
 
@@ -428,9 +424,51 @@ body{
 .dialog-actions{ display:flex; gap:10px; align-items:center; margin-top:14px; }
 .dialog-hint{ margin-top:10px; font-size:11px; color:var(--muted); line-height:1.6; }
 
+/* ===== iOS time input：防止「上午xx:xx」撐爆造成重疊 ===== */
+/* 兼容你可能用的 class：timeGrid（如果 app.js 有加） */
+.dialog .timeGrid,
+.dialog .grid2{
+  grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+}
+.dialog .timeGrid > div,
+.dialog .grid2 > div{
+  min-width:0;
+}
+.dialog input[type="time"]{
+  min-width:0;
+  width:100%;
+  box-sizing:border-box;
+}
+
+/* ✅ 只有真的很窄才改單欄，避免 iPhone 正常寬度被迫變很長 */
+@media (max-width: 340px){
+  .dialog .timeGrid,
+  .dialog .grid2{
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 小螢幕：讓 time input 稍微緊湊一點 */
+.dialog input[type="time"].input{
+  padding:10px 12px;
+  font-size:14px;
+}
+
 /* Desktop polish */
 @media (min-width: 860px){
   .content{ max-width: 860px; margin: 0 auto; }
-  .topbar{ padding-left: calc(50% - 430px + 16px); padding-right: calc(50% - 430px + 16px); }
-  .tabbar{ max-width: 860px; margin: 0 auto; left: 50%; transform: translateX(-50%); border-left:1px solid rgba(255,255,255,0.08); border-right:1px solid rgba(255,255,255,0.08); border-top-left-radius: 18px; border-top-right-radius: 18px; }
+  .topbar{
+    padding-left: calc(50% - 430px + 16px);
+    padding-right: calc(50% - 430px + 16px);
+  }
+  .tabbar{
+    max-width: 860px;
+    margin: 0 auto;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left:1px solid rgba(255,255,255,0.08);
+    border-right:1px solid rgba(255,255,255,0.08);
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+  }
 }
