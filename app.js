@@ -525,7 +525,7 @@ async function fetchDashboardReport(){
   const goalStatus = buildGoalStatusText();
 
   const prompt = `
-【身分】一個全職考生，即將面臨考試。
+【身分】使用者是一個全職考生，即將面臨考試，AI必須以一個糖與鞭子都給予的教官身份嚴格督促他學習。
 【分析當下時間】：${currentTimeStr}
 
 【今日任務完成】完課：${todayDoneList || "（無）"}。
@@ -545,6 +545,7 @@ ${goalStatus.longLines}
 2) 回應反思並對話。
 3) 性格/習性分析（<=100字）。
 4) 給出具體下一步（可執行、可量化）。
+5) 針對使用者的日程安排給出建議
 5) 參考過去五天 histLog 避免只看一天。
 【結尾格式】：
 SCORE: [0-100]
