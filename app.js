@@ -1,5 +1,5 @@
 /***********************
- *  戰力診斷系統 Web版（改良完整版）
+ *  學習診斷系統 Web版（改良完整版）
  *
  * ✅ 目標可自訂：長期 / 每日
  * ✅ 評估報告納入每日+長期目標狀態
@@ -71,7 +71,7 @@ const DEFAULTS = {
   bgURL: "https://images.unsplash.com/photo-1542051841857-5f90071e7989?q=80&w=2070",
   bgMode: "url",
 
-  reportMsg: "戰略報告準備中...",
+  reportMsg: "學習報告準備中...",
   analysisTime: "",
   focusMsg: "專注於每一個當下。",
 
@@ -541,7 +541,7 @@ ${goalStatus.longLines}
 【歷史校正資料】：${histLog}。
 
 【要求】：
-1) 180 字內深度學習診斷，必須把「每日目標達成度」與「長期目標進度/風險」納入評估（Markdown **粗體**）。
+1) 180 字內深入學習診斷，必須把「每日目標達成度」與「長期目標進度/風險」納入評估（Markdown **粗體**）。
 2) 回應反思並對話。
 3) 性格/習性分析（<=100字）。
 4) 給出具體下一步（可執行、可量化）。
@@ -709,8 +709,6 @@ function renderCalendar(){
 
   const dk = dateKey(state.selectedDate);
   const ws = getWakeSleepForDay(dk);
-  const wakeShow = ws.wake || "--:--";
-  const sleepShow = ws.sleep || "--:--";
 
   return `
     <div class="card">
@@ -749,6 +747,10 @@ function renderCalendar(){
           <input class="input mono" id="sleepInput" type="time" value="${escapeAttr(ws.sleep || "")}" style="flex:1" />
           <button class="btn primary" data-action="saveSleep">儲存</button>
           <button class="btn" data-action="sleepNow">用現在</button>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn danger" data-action="resetWakeSleep">重置清空</button>
         </div>
       </div>
 
@@ -910,7 +912,7 @@ function renderDashboard(){
     </div>
 
     <div class="card">
-      <h3>今日實戰回顧</h3>
+      <h3>今日學習回顧</h3>
       ${doneList}
     </div>
 
@@ -933,7 +935,7 @@ function renderDashboard(){
     </div>
 
     <button class="btn primary" data-action="submitReport" ${state.isReportLoading ? "disabled" : ""}>
-      ${state.isReportLoading ? "正在計算勝率..." : "提交反思並產出戰術報告"}
+      ${state.isReportLoading ? "正在計算勝率..." : "提交反思並產出學習報告"}
     </button>
   `;
 }
@@ -988,31 +990,31 @@ function renderHistory(){
       .sort((a,b)=> new Date(a.date) - new Date(b.date));
 
     const timeline = dayEvents.length ? dayEvents.map(e=>{
-  const st = new Date(e.date);
-  const et = e.endTime ? new Date(e.endTime) : null;
-  const timeRange = `${fmtTime(st)}${et ? ` - ${fmtTime(et)}` : ""}`;
+      const st = new Date(e.date);
+      const et = e.endTime ? new Date(e.endTime) : null;
+      const timeRange = `${fmtTime(st)}${et ? ` - ${fmtTime(et)}` : ""}`;
 
-  const overdue = (!e.isDone && st < new Date());
-  const title = overdue
-    ? `<span style="text-decoration:line-through; opacity:0.65;">${escapeHtml(e.title)}</span>`
-    : escapeHtml(e.title);
+      const overdue = (!e.isDone && st < new Date());
+      const title = overdue
+        ? `<span style="text-decoration:line-through; opacity:0.65;">${escapeHtml(e.title)}</span>`
+        : escapeHtml(e.title);
 
-  const typeTag = e.type === "Study"
-    ? `<span class="pill study">讀書</span>`
-    : `<span class="pill life">生活</span>`;
+      const typeTag = e.type === "Study"
+        ? `<span class="pill study">讀書</span>`
+        : `<span class="pill life">生活</span>`;
 
-  const dot = e.isDone ? `<span class="dot good"></span>` : `<span class="dot bad"></span>`;
+      const dot = e.isDone ? `<span class="dot good"></span>` : `<span class="dot bad"></span>`;
 
-  return `
-    <div class="row" style="gap:8px; align-items:center; padding:6px 0;">
-      ${dot}
-      <span class="mono small">${escapeHtml(timeRange)}</span>
-      <span style="font-size:13px;">${title}</span>
-      <span class="spacer"></span>
-      ${typeTag}
-    </div>
-  `;
-}).join("") : `<div class="small">無記錄</div>`;
+      return `
+        <div class="row" style="gap:8px; align-items:center; padding:6px 0;">
+          ${dot}
+          <span class="mono small">${escapeHtml(timeRange)}</span>
+          <span style="font-size:13px;">${title}</span>
+          <span class="spacer"></span>
+          ${typeTag}
+        </div>
+      `;
+    }).join("") : `<div class="small">無記錄</div>`;
 
     return `
       <div class="card">
@@ -1333,22 +1335,23 @@ function bindDynamicHandlers(){
   if(focusTaskInput){
     focusTaskInput.oninput = ()=> { state.focusTaskName = focusTaskInput.value; };
   }
+
+  // ✅ FIXED: duration +/- writes back to focusSession, min=5min, step=5min
   elContent.querySelectorAll("[data-action='minus5']").forEach(btn=>{
     btn.onclick = ()=>{
       if(state.isFocusing) return;
-      state.totalTime = Math.max(60, state.totalTime - 300);
-      state.timeLeft = state.totalTime;
+      adjustFocusDuration(-FOCUS_STEP_SEC);
       render();
     };
   });
   elContent.querySelectorAll("[data-action='plus5']").forEach(btn=>{
     btn.onclick = ()=>{
       if(state.isFocusing) return;
-      state.totalTime = Math.min(7200, state.totalTime + 300);
-      state.timeLeft = state.totalTime;
+      adjustFocusDuration(+FOCUS_STEP_SEC);
       render();
     };
   });
+
   elContent.querySelectorAll("[data-action='toggleFocus']").forEach(btn=> btn.onclick = ()=> toggleFocus());
   elContent.querySelectorAll("[data-action='abandon']").forEach(btn=> btn.onclick = ()=> abandonTask());
 
@@ -1632,6 +1635,43 @@ const DEFAULT_FOCUS_SESSION = {
 };
 const FOCUS_GRACE_MS = 30_000;
 
+// ✅ NEW: duration config (min=5min, step=5min)
+const FOCUS_MIN_SEC = 300;   // 5 min
+const FOCUS_STEP_SEC = 300;  // 5 min
+const FOCUS_MAX_SEC = 7200;  // 2 hours
+function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+/**
+ * ✅ FIX: 調整專注時長時，必須同步寫回 focusSession
+ * - running：不允許（UI 也會 disabled）
+ * - paused：total 跟著變，timeLeft 也 +/-（更直覺）
+ * - idle：直接改成新的預設時長（timeLeft=total）
+ */
+function adjustFocusDuration(deltaSec){
+  const s = state.focusSession;
+  if(!s) return;
+  if(s.status === "running") return;
+
+  const curTotal = Number(s.totalTimeSec ?? state.totalTime ?? 1500);
+  const curLeft  = Number(s.timeLeftSec ?? state.timeLeft ?? curTotal);
+
+  const nextTotal = clamp(curTotal + deltaSec, FOCUS_MIN_SEC, FOCUS_MAX_SEC);
+
+  let nextLeft;
+  if(s.status === "paused"){
+    nextLeft = clamp(curLeft + deltaSec, 0, nextTotal);
+  }else{
+    nextLeft = nextTotal;
+  }
+
+  s.totalTimeSec = nextTotal;
+  s.timeLeftSec  = nextLeft;
+  s.endsAtMs = null;
+  saveFocusSession();
+
+  syncUIFromSession();
+}
+
 function nowMs(){ return Date.now(); }
 function loadFocusSession(){
   const s = loadJSON(K_FOCUS_SESSION, null);
@@ -1912,7 +1952,7 @@ function exportData(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `study-war-room-export-${dateKey(new Date())}.json`;
+  a.download = `study-export-${dateKey(new Date())}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
