@@ -999,21 +999,31 @@ function renderHistory(){
       .sort((a,b)=> new Date(a.date) - new Date(b.date));
 
     const timeline = dayEvents.length ? dayEvents.map(e=>{
-      const st = new Date(e.date);
-      const overdue = (!e.isDone && st < new Date());
-      const title = overdue ? `<span style="text-decoration:line-through; opacity:0.65;">${escapeHtml(e.title)}</span>` : escapeHtml(e.title);
-      const typeTag = e.type === "Study" ? `<span class="pill study">讀書</span>` : `<span class="pill life">生活</span>`;
-      const dot = e.isDone ? `<span class="dot good"></span>` : `<span class="dot bad"></span>`;
-      return `
-        <div class="row" style="gap:8px; align-items:center; padding:6px 0;">
-          ${dot}
-          <span class="mono small">${fmtTime(st)}</span>
-          <span style="font-size:13px;">${title}</span>
-          <span class="spacer"></span>
-          ${typeTag}
-        </div>
-      `;
-    }).join("") : `<div class="small">無記錄</div>`;
+  const st = new Date(e.date);
+  const et = e.endTime ? new Date(e.endTime) : null;
+  const timeRange = `${fmtTime(st)}${et ? ` - ${fmtTime(et)}` : ""}`;
+
+  const overdue = (!e.isDone && st < new Date());
+  const title = overdue
+    ? `<span style="text-decoration:line-through; opacity:0.65;">${escapeHtml(e.title)}</span>`
+    : escapeHtml(e.title);
+
+  const typeTag = e.type === "Study"
+    ? `<span class="pill study">讀書</span>`
+    : `<span class="pill life">生活</span>`;
+
+  const dot = e.isDone ? `<span class="dot good"></span>` : `<span class="dot bad"></span>`;
+
+  return `
+    <div class="row" style="gap:8px; align-items:center; padding:6px 0;">
+      ${dot}
+      <span class="mono small">${escapeHtml(timeRange)}</span>
+      <span style="font-size:13px;">${title}</span>
+      <span class="spacer"></span>
+      ${typeTag}
+    </div>
+  `;
+}).join("") : `<div class="small">無記錄</div>`;
 
     return `
       <div class="card">
