@@ -21,6 +21,12 @@
   --good:#3BE57F;
   --warn:#F8D351;
   --bad:#FF4D4D;
+
+  /* safe area（iPhone 底部 Home bar） */
+  --safeB: env(safe-area-inset-bottom, 0px);
+  --safeT: env(safe-area-inset-top, 0px);
+  --safeL: env(safe-area-inset-left, 0px);
+  --safeR: env(safe-area-inset-right, 0px);
 }
 
 *{
@@ -29,12 +35,22 @@
   font-family:-apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Helvetica Neue", Arial, sans-serif;
 }
 
+/* iOS：避免點 input / textarea 時自動放大（核心：>=16px） */
+input, textarea, select, button{
+  font-size:16px;
+}
+
 html,body{height:100%;}
 body{
   margin:0;
   background:#07080a;
   color:var(--text);
   overflow-x:hidden;
+
+  /* 手機滾動更穩 */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior: none;
 }
 
 #bg{
@@ -62,7 +78,10 @@ body{
   position:sticky;
   top:0;
   z-index:20;
-  padding:14px 16px 10px;
+
+  /* safe area */
+  padding: calc(14px + var(--safeT)) calc(16px + var(--safeR)) 10px calc(16px + var(--safeL));
+
   display:flex;
   justify-content:space-between;
   align-items:flex-end;
@@ -93,7 +112,10 @@ body{
 
 .content{
   padding:16px;
-  padding-bottom:118px;
+
+  /* tabbar + safe area */
+  padding-bottom: calc(118px + var(--safeB));
+
   animation: fadeIn .16s ease-out;
 }
 
@@ -135,6 +157,10 @@ body{
   background: rgba(255,255,255,0.07);
   color:var(--text);
   outline:none;
+
+  /* iOS：輸入更順 */
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .input:focus, .textarea:focus{
@@ -156,6 +182,7 @@ body{
   color:var(--text);
   cursor:pointer;
   transition: transform .06s ease, background .12s ease;
+  white-space: nowrap;
 }
 .btn:active{ transform: scale(0.98); }
 .btn.primary{
@@ -170,19 +197,30 @@ body{
 }
 .btn:disabled{ opacity:.45; cursor:not-allowed; }
 
-.row{ display:flex; gap:10px; align-items:center; }
-.row-between{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.row{
+  display:flex;
+  gap:10px;
+  align-items:center;
 
-/* ✅ Grid：改成 minmax(0,1fr) 防止被內容撐爆造成重疊 */
+  /* 手機避免被擠爆 */
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.row-between{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+
+  flex-wrap: wrap;
+  min-width: 0;
+}
 .grid2{
   display:grid;
-  grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+  grid-template-columns:1fr 1fr;
   gap:10px;
 }
-.grid2 > div{ min-width:0; }
-.grid2 .input{ min-width:0; }
-
-.spacer{ flex:1; }
+.spacer{ flex:1; min-width: 0; }
 
 .pill{
   display:inline-flex;
@@ -246,6 +284,7 @@ body{
   border-radius: 14px;
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.10);
+  min-width: 0;
 }
 
 .check{
@@ -265,6 +304,9 @@ body{
   border-color: rgba(59,229,127,0.26);
 }
 
+.task-body{
+  min-width: 0;
+}
 .task-title{ font-weight:900; }
 .task-title.done{ text-decoration:line-through; opacity:0.62; }
 
@@ -274,7 +316,16 @@ body{
   color: var(--muted);
 }
 
-.task-actions{ margin-left:auto; display:flex; gap:8px; }
+.task-actions{
+  margin-left:auto;
+  display:flex;
+  gap:8px;
+  flex:0 0 auto;
+
+  /* 小螢幕避免擠到爆 */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 
 .iconbtn{
   border:1px solid rgba(255,255,255,0.14);
@@ -284,6 +335,7 @@ body{
   border-radius: 14px;
   cursor:pointer;
   transition: transform .06s ease, background .12s ease;
+  white-space: nowrap;
 }
 .iconbtn:active{ transform: scale(0.98); }
 .iconbtn.play{
@@ -292,6 +344,7 @@ body{
   color: var(--accent);
 }
 
+/* ===== Focus Ring Responsive ===== */
 .timerRing{
   width:260px; height:260px;
   margin: 0 auto;
@@ -325,7 +378,7 @@ body{
   left:0; right:0; bottom:0;
   z-index:50;
 
-  padding: 10px 14px 26px;
+  padding: 10px calc(14px + var(--safeR)) calc(18px + var(--safeB)) calc(14px + var(--safeL));
   display:flex;
   gap: 6px;
 
@@ -375,32 +428,25 @@ body{
   border: 1px solid rgba(255,255,255,0.08);
 }
 
-/* ===== Dialog (Add/Edit) ===== */
-/* ✅ 配合手機視窗大小 + safe-area + 內容內滾，避免整個變超長 */
+/* ===== Dialog ===== */
 .dialog{
   border: 1px solid rgba(255,255,255,0.14);
   border-radius: 18px;
   background: rgba(12,12,14,0.92);
-  color: var(--text);
+  color:var(--text);
   padding:0;
-  width: min(520px, calc(100vw - 24px));
-  max-width: calc(100vw - 24px);
-  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  width:min(520px, 92vw);
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px) saturate(1.15);
   -webkit-backdrop-filter: blur(18px) saturate(1.15);
-  overflow:hidden; /* 讓內部滾，不讓外框爆 */
+
+  /* 手機鍵盤彈出時更穩：不要讓 dialog 超出視窗 */
+  max-height: min(78vh, 620px);
+  overflow: auto;
 }
 .dialog::backdrop{ background: rgba(0,0,0,0.62); }
 
-/* ✅ 內部可滾 */
-.dialog-form{
-  padding: clamp(12px, 3vw, 14px);
-  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-  overflow:auto;
-  -webkit-overflow-scrolling: touch;
-}
-
+.dialog-form{ padding:14px; }
 .dialog-title{ font-weight:900; margin-bottom:12px; }
 .label{ display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
 
@@ -421,37 +467,67 @@ body{
   font-weight:900;
 }
 
-.dialog-actions{ display:flex; gap:10px; align-items:center; margin-top:14px; }
+.dialog-actions{ display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap: wrap; }
 .dialog-hint{ margin-top:10px; font-size:11px; color:var(--muted); line-height:1.6; }
 
-/* ===== iOS time input：防止「上午xx:xx」撐爆造成重疊 ===== */
-/* 兼容你可能用的 class：timeGrid（如果 app.js 有加） */
-.dialog .timeGrid,
-.dialog .grid2{
-  grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+/* ===== 重點：iOS 的開始/結束 time input 不再疊在一起 ===== */
+/* 你的 HTML 是：<div class="grid2 timeGrid"> ... */
+.dialog .grid2.timeGrid{
+  /* grid 在 iOS time input 容易被 min-content 撐爆 → 改成 flex 最穩 */
+  display:flex !important;
+  gap:10px;
+  align-items:flex-start;
 }
-.dialog .timeGrid > div,
-.dialog .grid2 > div{
-  min-width:0;
+.dialog .grid2.timeGrid > div{
+  flex:1 1 0;
+  min-width:0; /* 關鍵：允許縮小 */
 }
-.dialog input[type="time"]{
-  min-width:0;
+
+/* time input 本體也要能縮 + 防 iOS zoom */
+.dialog .grid2.timeGrid input[type="time"]{
   width:100%;
+  min-width:0;
+  max-width:100%;
   box-sizing:border-box;
+  font-size:16px; /* iOS 防 zoom */
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-/* ✅ 只有真的很窄才改單欄，避免 iPhone 正常寬度被迫變很長 */
-@media (max-width: 340px){
-  .dialog .timeGrid,
-  .dialog .grid2{
-    grid-template-columns: 1fr;
+/* Safari time input 內部 wrapper 也要能縮（避免撐寬導致重疊） */
+.dialog .grid2.timeGrid input[type="time"]::-webkit-date-and-time-value{
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.dialog .grid2.timeGrid input[type="time"]::-webkit-datetime-edit,
+.dialog .grid2.timeGrid input[type="time"]::-webkit-datetime-edit-fields-wrapper{
+  max-width:100%;
+  overflow:hidden;
+}
+
+/* 超窄螢幕才上下排 */
+@media (max-width: 320px){
+  .dialog .grid2.timeGrid{ flex-direction: column; }
+}
+
+/* ===== Mobile polish ===== */
+@media (max-width: 420px){
+  .content{
+    padding:14px;
+    padding-bottom: calc(112px + var(--safeB));
   }
-}
 
-/* 小螢幕：讓 time input 稍微緊湊一點 */
-.dialog input[type="time"].input{
-  padding:10px 12px;
-  font-size:14px;
+  .timerRing{ width:220px; height:220px; }
+  .timerRing svg{ width:220px; height:220px; }
+  .timerTime{ font-size:46px; }
+
+  .day{ height:34px; }
+  .btn{ padding:10px 10px; }
+
+  /* 兩欄 grid 在手機常常擠：改成單欄更穩 */
+  .grid2{ grid-template-columns: 1fr; }
 }
 
 /* Desktop polish */
