@@ -1,5 +1,5 @@
 /***********************
- *  學習診斷系統 Web版（改良完整版）
+ *  學習診斷系統 Web版（改良完整版 v6）
  *
  * ✅ 目標可自訂：長期 / 每日
  * ✅ 評估報告納入每日+長期目標狀態
@@ -8,12 +8,11 @@
  * ✅ 長期目標不再顯示「（長期D-31）」那種長字：改成右側小 badge
  * ✅ 起床/睡覺：改成手動輸入（可重置清空）避免誤觸；並以日期保存、匯出 JSON 會紀錄
  *
- * ✅ NEW(本次修正)：
- * 1) 番茄鐘短評語：會根據「設定時長」+「任務目標(排程時段/對應目標)」給評語
- *    - 超過/不足會提醒（太長/太短）
- *    - 強制短評語 <= 25 字
- * 2) 每日學習報告：將「空擋時間(未記載時段)」納入評分考量
- *    - 依今日起床/睡覺與排程任務，計算已排程、空擋、比例
+ * ✅ NEW(你要的修正)：
+ * 1) 番茄鐘「暫停」也會觸發一句新評語（教官感知到）
+ * 2) 長任務：每 30 分鐘（只計算 running 的專注時間；pause 不算）自動換一次評語
+ * 3) 每日學習報告：把「空檔時間/空檔區段/空檔高峰時段」納入評分依據
+ * 4) 長期目標建議：明確以「一次至少 2 小時」的投入單位來安排與建議
  ************************/
 
 /** ========= Storage Keys ========= */
@@ -211,8 +210,8 @@ function sameDay(a,b){
   return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
 }
 function combineDateTime(baseDate, hhmm){
-  const [hh, mm] = hhmm.split(":").map(Number);
-  return new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), hh, mm, 0, 0);
+  const [hh, mm] = (hhmm || "00:00").split(":").map(Number);
+  return new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), hh||0, mm||0, 0, 0);
 }
 function fmtTime(d){ return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
 function fmtDateHuman(key){
@@ -230,6 +229,14 @@ function daysUntil(yyyy_mm_dd){
   const today = new Date();
   const base = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0,0,0,0);
   return Math.ceil((target - base) / (1000*60*60*24));
+}
+function keyToDate(dateK){
+  if(!dateK || dateK.length !== 8) return new Date();
+  const y = Number(dateK.slice(0,4));
+  const m = Number(dateK.slice(4,6));
+  const d = Number(dateK.slice(6,8));
+  if(!y || !m || !d) return new Date();
+  return new Date(y, m-1, d, 0,0,0,0);
 }
 
 /** ========= Daily reset ========= */
@@ -337,203 +344,6 @@ async function geminiGenerate(prompt){
   return json?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
-/** ========= NEW: Focus 評語 / 任務目標與時長分析 ========= */
-function msToMin(ms){ return Math.max(0, Math.round(ms / 60000)); }
-
-function findPlannedMinutesForTask(taskTitle, dayK){
-  // 找同一天、同標題、Study 類任務的排程時段（優先：未完成、且有 endTime）
-  const list = (data.events || [])
-    .filter(e => e.type === "Study")
-    .filter(e => dayK ? (dateKey(new Date(e.date)) === dayK) : true)
-    .filter(e => (e.title || "").trim() === (taskTitle || "").trim())
-    .filter(e => e.endTime)
-    .sort((a,b)=> new Date(a.date) - new Date(b.date));
-
-  const pick = list.find(e => !e.isDone) || list[0];
-  if(!pick) return null;
-
-  const st = new Date(pick.date);
-  const et = new Date(pick.endTime);
-  const dur = msToMin(et - st);
-  return Number.isFinite(dur) && dur > 0 ? dur : null;
-}
-
-function matchGoalByTaskTitle(taskTitle, dayK){
-  const t = String(taskTitle || "").trim();
-  if(!t) return null;
-
-  // 先匹配每日目標（title 包含 / 被包含）
-  const daily = (data.dailyGoals || []).find(g=>{
-    const gt = String(g.title || "").trim();
-    if(!gt) return false;
-    return t.includes(gt) || gt.includes(t);
-  });
-  if(daily){
-    const dp = getDailyProgressFor(dayK);
-    const v = Number(dp?.[daily.id] || 0);
-    const target = Number(daily.target || 0);
-    const unit = daily.unit || "";
-    const rem = Math.max(0, target - v);
-    const pct = target > 0 ? Math.min(100, Math.round((v/target)*100)) : 0;
-    return { kind:"daily", title: daily.title, v, target, unit, rem, pct };
-  }
-
-  // 再匹配長期目標
-  const long = (data.longGoals || []).find(g=>{
-    const gt = String(g.title || "").trim();
-    if(!gt) return false;
-    return t.includes(gt) || gt.includes(t);
-  });
-  if(long){
-    const done = Number(long.completed || 0);
-    const total = Number(long.total || 0);
-    const ddl = long.deadline || data.examDate || "";
-    const left = daysUntil(ddl);
-    const pct = total > 0 ? Math.min(100, Math.round((done/total)*100)) : 0;
-    return { kind:"long", title: long.title, done, total, pct, ddl, left };
-  }
-
-  return null;
-}
-
-function durationJudgement(totalMin, plannedMin){
-  // 用來給 AI 一個明確判斷基準（它更容易產出「太長/太短」）
-  const base = plannedMin || 25;
-  if(totalMin <= 0) return { verdict:"unknown", base };
-  if(totalMin < 15) return { verdict:"tooShort", base };
-  if(totalMin > 75) return { verdict:"tooLong", base };
-
-  if(plannedMin){
-    if(totalMin > plannedMin + 10) return { verdict:"tooLong", base };
-    if(totalMin < Math.max(10, plannedMin - 10)) return { verdict:"tooShort", base };
-  }else{
-    // 沒有排程目標時，以 25 分為常態參考
-    if(totalMin > 45) return { verdict:"tooLong", base };
-    if(totalMin < 20) return { verdict:"tooShort", base };
-  }
-  return { verdict:"ok", base };
-}
-
-function enforceShortJab(msg, maxChars=25){
-  const s = String(msg || "").replace(/\s+/g," ").trim();
-  if(!s) return "";
-  if(s.length <= maxChars) return s;
-
-  // 先嘗試去掉 ** 再判斷
-  const plain = s.replace(/\*\*/g,"").trim();
-  if(plain.length <= maxChars) return s;
-
-  // 強制截斷：用全粗體包起來，避免斷 Markdown
-  const cut = plain.slice(0, maxChars);
-  return `**${cut}**`;
-}
-
-/** ========= NEW: 空擋時間(未記載時段) 計算 ========= */
-function parseDateKeyToDate(dayK){
-  if(!dayK || dayK.length !== 8) return null;
-  const y = Number(dayK.slice(0,4));
-  const m = Number(dayK.slice(4,6));
-  const d = Number(dayK.slice(6,8));
-  if(!y || !m || !d) return null;
-  return new Date(y, m-1, d, 0,0,0,0);
-}
-
-function getAwakeWindowForDayKey(dayK){
-  const baseDate = parseDateKeyToDate(dayK);
-  if(!baseDate) return null;
-
-  const ws = getWakeSleepForDay(dayK);
-  const wake = ws.wake || "";
-  const sleep = ws.sleep || "";
-
-  if(!wake || !sleep) return null;
-
-  const wakeDt = combineDateTime(baseDate, wake);
-  let sleepDt = combineDateTime(baseDate, sleep);
-
-  // 若睡覺時間早於起床時間 → 視為跨日到隔天
-  if(sleepDt <= wakeDt) sleepDt = new Date(sleepDt.getTime() + 24*60*60*1000);
-
-  return { wakeDt, sleepDt };
-}
-
-function unionMinutesOfIntervals(intervals){
-  if(!intervals.length) return 0;
-  intervals.sort((a,b)=> a[0]-b[0]);
-  let total = 0;
-  let [cs, ce] = intervals[0];
-  for(let i=1;i<intervals.length;i++){
-    const [s,e] = intervals[i];
-    if(s <= ce){
-      ce = Math.max(ce, e);
-    }else{
-      total += (ce - cs);
-      cs = s; ce = e;
-    }
-  }
-  total += (ce - cs);
-  return msToMin(total);
-}
-
-function calcGapsForDay(dayK){
-  const win = getAwakeWindowForDayKey(dayK);
-  if(!win) return { ok:false, reason:"wake/sleep missing" };
-
-  const { wakeDt, sleepDt } = win;
-  const awakeMs = Math.max(0, sleepDt - wakeDt);
-  const awakeMin = msToMin(awakeMs);
-
-  // 抓取所有當天(以 start dateKey)事件，並裁切到醒著區間
-  const dayEvents = (data.events || [])
-    .map(e=>{
-      const st = new Date(e.date);
-      const et = e.endTime ? new Date(e.endTime) : null;
-      if(!Number.isFinite(st.getTime())) return null;
-      if(!et || !Number.isFinite(et.getTime())) return null;
-      return { ...e, st, et };
-    })
-    .filter(Boolean)
-    .filter(e=>{
-      // 事件起始落在 dayK（符合你既有資料結構）
-      return dateKey(e.st) === dayK;
-    });
-
-  let studyIntervals = [];
-  let lifeIntervals = [];
-  let allIntervals = [];
-
-  for(const e of dayEvents){
-    // clamp to awake window
-    const s = Math.max(e.st.getTime(), wakeDt.getTime());
-    const t = Math.min(e.et.getTime(), sleepDt.getTime());
-    if(t <= s) continue;
-
-    allIntervals.push([s,t]);
-    if(e.type === "Study") studyIntervals.push([s,t]);
-    else lifeIntervals.push([s,t]);
-  }
-
-  const scheduledMin = unionMinutesOfIntervals(allIntervals);
-  const studyMin = unionMinutesOfIntervals(studyIntervals);
-  const lifeMin = unionMinutesOfIntervals(lifeIntervals);
-
-  const gapMin = Math.max(0, awakeMin - scheduledMin);
-  const gapPct = awakeMin > 0 ? Math.round((gapMin / awakeMin) * 100) : 0;
-
-  return {
-    ok:true,
-    wake: fmtTime(wakeDt),
-    sleep: fmtTime(sleepDt),
-    awakeMin,
-    scheduledMin,
-    studyMin,
-    lifeMin,
-    gapMin,
-    gapPct,
-  };
-}
-
-/** ========= Focus jab (UPDATED) ========= */
 async function fetchFocusJab(reason){
   try{
     const now = new Date();
@@ -544,46 +354,18 @@ async function fetchFocusJab(reason){
     const total = done + fail;
     const winRate = total > 0 ? Math.round((done / total) * 100) : 0;
 
-    // NEW: duration + task goal analysis
-    const taskTitle = (state.focusTaskName || state.focusSession?.taskName || "").trim();
-    const dayK = todayKey();
-    const sessionMin = Math.round(Number(state.focusSession?.totalTimeSec ?? state.totalTime ?? 1500) / 60);
-    const plannedMin = taskTitle ? findPlannedMinutesForTask(taskTitle, dayK) : null;
-    const goal = taskTitle ? matchGoalByTaskTitle(taskTitle, dayK) : null;
-    const dj = durationJudgement(sessionMin, plannedMin);
-
-    const goalLine = goal
-      ? (goal.kind === "daily"
-          ? `對應每日目標：${goal.title} ${goal.v}/${goal.target}${goal.unit}（剩${goal.rem}｜${goal.pct}%）`
-          : `對應長期目標：${goal.title} ${goal.done}/${goal.total}（${goal.pct}%） 截止:${goal.ddl || "未設定"}`
-        )
-      : "對應目標：無（未匹配）";
-
-    const planLine = plannedMin
-      ? `排程目標時長：${plannedMin} 分`
-      : `排程目標時長：未設定（以 25 分作基準）`;
-
     const prompt =
-      `身分：以一位高冷嚴厲教官面對一個準備考試的學生。\n` +
-      `分析時間：${timeStr}。\n` +
+      `身分：以一位高冷嚴厲教官面對一個準備考試的學生。分析時間：${timeStr}。\n` +
       `任務狀態：${reason}。\n` +
-      `任務名稱：${taskTitle || "（未命名）"}。\n` +
-      `本次專注設定時長：${sessionMin} 分。\n` +
-      `${planLine}\n` +
-      `時長判定：${dj.verdict}（基準:${dj.base}分）。\n` +
-      `${goalLine}\n` +
-      `番茄鐘：成功 ${done}、失敗 ${fail}、勝率 ${winRate}%（今日）。\n\n` +
-      `請輸出「一句」短評語（<=25字，必須含 **粗體**），並依「時長判定」提到太長/太短/剛好與下一步。`;
+      `番茄鐘：成功 ${done}、失敗 ${fail}、勝率 ${winRate}%（今日）。\n` +
+      `請給一句 20 字內反饋（Markdown **粗體**）。`;
 
-    const msgRaw = await geminiGenerate(prompt);
-    const msg = enforceShortJab(msgRaw, 25);
-
+    const msg = await geminiGenerate(prompt);
     data.focusMsg = msg || data.focusMsg;
     persistAll();
     render();
   }catch{
-    // fallback 也要 <=25字
-    data.focusMsg = enforceShortJab(`**連線失敗：跑完這25分**`, 25);
+    data.focusMsg = `**（AI 連線失敗）** 先把下一個 25 分鐘跑完。`;
     persistAll();
     render();
   }
@@ -737,6 +519,124 @@ function buildHistLog(days=5){
   return out.join("；");
 }
 
+/** ========= NEW: 空檔分析（納入每日評分） ========= */
+function msToMin(ms){ return Math.max(0, Math.round(ms / 60000)); }
+function clampDate(d, minD, maxD){
+  const t = d.getTime();
+  return new Date(Math.max(minD.getTime(), Math.min(maxD.getTime(), t)));
+}
+function mergeIntervals(intervals){
+  if(!intervals.length) return [];
+  const sorted = intervals.slice().sort((a,b)=> a.start - b.start);
+  const merged = [ sorted[0] ];
+  for(let i=1;i<sorted.length;i++){
+    const cur = sorted[i];
+    const last = merged[merged.length-1];
+    if(cur.start <= last.end){
+      last.end = Math.max(last.end, cur.end);
+    }else{
+      merged.push(cur);
+    }
+  }
+  return merged;
+}
+function computeIdleStatsForKey(dateK){
+  const day = keyToDate(dateK);
+  const ws = getWakeSleepForDay(dateK);
+
+  const wake = ws.wake || data.wakeTime || DEFAULTS.wakeTime || "07:00";
+  const sleep = ws.sleep || data.sleepTime || DEFAULTS.sleepTime || "23:30";
+
+  let dayStart = combineDateTime(day, wake || "07:00");
+  let dayEnd = combineDateTime(day, sleep || "23:30");
+  if(dayEnd.getTime() <= dayStart.getTime()){
+    // 睡覺時間跨過午夜（例如 01:30）
+    dayEnd = new Date(dayEnd.getTime() + 24*60*60*1000);
+  }
+
+  const dayMs = Math.max(0, dayEnd - dayStart);
+  const awakeMin = msToMin(dayMs);
+
+  const evts = (data.events || [])
+    .filter(e => dateKey(new Date(e.date)) === dateK)
+    .map(e=>{
+      const st = new Date(e.date);
+      const et = e.endTime ? new Date(e.endTime) : new Date(st.getTime() + 60*60*1000);
+      return { st, et, type: e.type || "Study", isDone: !!e.isDone, title: e.title || "" };
+    })
+    .filter(x=> x.et && x.st && x.et > x.st);
+
+  // clamp to day window
+  const intervals = evts.map(x=>{
+    const s = clampDate(x.st, dayStart, dayEnd);
+    const e = clampDate(x.et, dayStart, dayEnd);
+    return { start: s.getTime(), end: e.getTime() };
+  }).filter(x=> x.end > x.start);
+
+  const merged = mergeIntervals(intervals);
+
+  let busyMs = 0;
+  for(const it of merged) busyMs += (it.end - it.start);
+
+  const idleMs = Math.max(0, dayMs - busyMs);
+  const busyMin = msToMin(busyMs);
+  const idleMin = msToMin(idleMs);
+  const idlePct = awakeMin > 0 ? Math.round((idleMin / awakeMin) * 100) : 0;
+
+  // idle blocks
+  const blocks = [];
+  let cursor = dayStart.getTime();
+  for(const it of merged){
+    if(it.start > cursor) blocks.push({ start: cursor, end: it.start });
+    cursor = Math.max(cursor, it.end);
+  }
+  if(cursor < dayEnd.getTime()) blocks.push({ start: cursor, end: dayEnd.getTime() });
+
+  const blocksMin = blocks.map(b=> ({ ...b, min: msToMin(b.end - b.start) }))
+    .filter(b=> b.min > 0);
+
+  blocksMin.sort((a,b)=> b.min - a.min);
+  const largest = blocksMin[0] || null;
+
+  const topBlocks = blocksMin.slice(0, 5).map(b=>{
+    return `${fmtTime(new Date(b.start))}-${fmtTime(new Date(b.end))}（${b.min}分）`;
+  }).join("；");
+
+  // 空檔高峰時段：用每小時計算空檔分鐘（只算在 dayStart~dayEnd 內）
+  const idleByHour = Array.from({length:24}, ()=>0);
+  for(const b of blocksMin){
+    let t = b.start;
+    while(t < b.end){
+      const d = new Date(t);
+      const h = d.getHours();
+      const nextHour = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h+1, 0,0,0).getTime();
+      const segEnd = Math.min(nextHour, b.end);
+      idleByHour[h] += msToMin(segEnd - t);
+      t = segEnd;
+    }
+  }
+
+  // 只挑空檔 >= 45 分的時段做提示（避免雜訊）
+  const danger = idleByHour
+    .map((m,h)=>({h, m}))
+    .filter(x=> x.m >= 45)
+    .sort((a,b)=> b.m - a.m)
+    .slice(0,3);
+
+  const dangerText = danger.length
+    ? danger.map(x=> `${x.h}點（空檔${x.m}分）`).join("、")
+    : "（無明顯空檔高峰）";
+
+  return {
+    wake, sleep,
+    awakeMin, busyMin, idleMin, idlePct,
+    largestIdleMin: largest?.min || 0,
+    largestIdleRange: largest ? `${fmtTime(new Date(largest.start))}-${fmtTime(new Date(largest.end))}` : "",
+    topBlocksText: topBlocks || "（無）",
+    dangerText,
+  };
+}
+
 async function fetchDashboardReport(){
   const trimmedKey = (data.apiKey || "").trim();
   if(!trimmedKey) return;
@@ -756,11 +656,8 @@ async function fetchDashboardReport(){
   const histLog = buildHistLog(5);
   const goalStatus = buildGoalStatusText();
 
-  // NEW: gaps
-  const gaps = calcGapsForDay(todayK);
-  const gapText = gaps.ok
-    ? `醒著：${gaps.wake}-${gaps.sleep}（${gaps.awakeMin}分）｜已排程：${gaps.scheduledMin}分(讀書${gaps.studyMin}/生活${gaps.lifeMin})｜空擋：${gaps.gapMin}分（${gaps.gapPct}%）`
-    : "（未設定起床/睡覺，無法計算空擋）";
+  // NEW: 空檔分析（今天）
+  const idleStats = computeIdleStatsForKey(todayK);
 
   const prompt = `
 【身分】使用者是一個全職考生，即將面臨考試，AI必須以一個糖與鞭子都給予的教官身份嚴格督促他學習。
@@ -769,26 +666,34 @@ async function fetchDashboardReport(){
 【今日任務完成】完課：${todayDoneList || "（無）"}。
 【番茄鐘】成功：${data.pomodoroDone}。失敗：${data.pomodoroFailed}。
 
-【今日空擋時間（未記載時段也算）】
-${gapText}
-※ 評分時必須把「空擋比例」列為重要扣分/加分依據：空擋太多＝紀律不足；空擋合理且有休息＝可接受；空擋極少但高強度＝注意疲勞。
-
 【每日目標（今日進度）】
 ${goalStatus.dailyLines}
 
 【長期目標（總進度 & 截止日）】
 ${goalStatus.longLines}
 
+【作息與空檔分析（自動）】
+- 今日紀錄起床/睡覺：${idleStats.wake || "--:--"} / ${idleStats.sleep || "--:--"}
+- 醒著時間：約 ${idleStats.awakeMin} 分
+- 已安排/被記錄時間：約 ${idleStats.busyMin} 分
+- 空檔時間：約 ${idleStats.idleMin} 分（空檔比例 ${idleStats.idlePct}%）
+- 最長空檔：${idleStats.largestIdleRange || "（無）"}（${idleStats.largestIdleMin}分）
+- 主要空檔區段：${idleStats.topBlocksText}
+- 空檔高峰時段：${idleStats.dangerText}
+
 【使用者本日反思】：${state.reflection?.trim() ? state.reflection.trim() : "（無）"}
 【歷史校正資料】：${histLog}。
 
+【重要規則（務必納入建議/評分）】
+- 「空檔時間」要納入評分：空檔過多、或集中在特定時段 = 扣分；空檔能被轉成短衝刺/休息節奏 = 加分。
+- 「長期目標」每次要完成一個有效進度，至少需要連續投入 2 小時（120 分鐘）深度工作；請把這個時間單位納入你的日程建議。
+
 【要求】：
-1) 180 字內深入學習診斷，必須把「每日目標達成度」與「長期目標進度/風險」納入評估（Markdown **粗體**）。
+1) 180 字內深入學習診斷，必須把「每日目標達成度」「長期目標進度/風險」「空檔時間分布」納入評估（Markdown **粗體**）。
 2) 回應反思並對話。
-3) 性格/習性分析（<=100字）。
+3) 性格/習性分析（<=100字），需點出你從空檔推測到的作息或不專注時段。
 4) 給出具體下一步（可執行、可量化）。
-5) 針對使用者的日程安排給出建議（要提到空擋怎麼填、怎麼切段）。
-6) 參考過去五天 histLog 避免只看一天。
+5) 針對使用者的日程安排給出建議（含至少一段 2 小時長期目標深度工作安排；並告訴他放在哪個時段最好，理由要對應空檔高峰）。
 【結尾格式】：
 SCORE: [0-100]
 LOG: [50字今日總結]
@@ -818,7 +723,7 @@ CHAR: [<=100字性格分析]
         daily: getDailyProgressFor(todayK),
         long: (data.longGoals || []).map(g => ({ id:g.id, title:g.title, total:g.total, completed:g.completed, deadline:g.deadline })),
         examDate: data.examDate,
-        gaps: gaps.ok ? gaps : null,
+        idleStats, // NEW: 把今日空檔快照也存進去（方便你未來擴充）
       };
 
       data.dailyLogs[todayK] = { score, summary: log, characterAnalysis: char, goalSnapshot: snapshot };
@@ -1863,7 +1768,7 @@ function counterUpdate(key, delta){
   }
 }
 
-/** ========= Focus Session (same as before) ========= */
+/** ========= Focus Session (updated) ========= */
 const K_FOCUS_SESSION = "focusSession";
 const DEFAULT_FOCUS_SESSION = {
   status: "idle",
@@ -1876,14 +1781,23 @@ const DEFAULT_FOCUS_SESSION = {
   awayArmed: false,
   awayDeadlineMs: null,
   awayReason: "",
+
+  // NEW: 專注累積（排除 pause）
+  focusedSec: 0,        // 累積 running 秒數
+  lastJabSec: 0,        // 上次換評語時的 focusedSec（30分鐘輪替）
+  lastTickMs: null,     // 上次 tick 的時間戳（running 才更新）
 };
+
 const FOCUS_GRACE_MS = 30_000;
 
-// ✅ NEW: duration config (min=5min, step=5min)
+// ✅ duration config (min=5min, step=5min)
 const FOCUS_MIN_SEC = 300;   // 5 min
 const FOCUS_STEP_SEC = 300;  // 5 min
 const FOCUS_MAX_SEC = 7200;  // 2 hours
 function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+// ✅ NEW: 每 30 分鐘換一次評語（只算 running）
+const FOCUS_JAB_INTERVAL_SEC = 1800;
 
 /**
  * ✅ FIX: 調整專注時長時，必須同步寫回 focusSession
@@ -1957,6 +1871,11 @@ function checkAwayAutoFail(){
   }
   return false;
 }
+
+/**
+ * ✅ UPDATED: reconcileRunningClock now also tracks focusedSec (excluding pause)
+ * and auto-jabs every 30 focused minutes.
+ */
 function reconcileRunningClock(){
   const s = state.focusSession;
   if(checkAwayAutoFail()) return;
@@ -1965,6 +1884,24 @@ function reconcileRunningClock(){
     syncUIFromSession();
     return;
   }
+
+  // track focused seconds (exclude pause by only counting when running)
+  const now = nowMs();
+  const last = Number.isFinite(s.lastTickMs) && s.lastTickMs ? s.lastTickMs : now;
+  const deltaSec = Math.max(0, (now - last) / 1000);
+  s.focusedSec = Number(s.focusedSec || 0) + deltaSec;
+  s.lastTickMs = now;
+
+  // auto jab every 30 focused minutes
+  const lastJab = Number(s.lastJabSec || 0);
+  if((s.focusedSec - lastJab) >= FOCUS_JAB_INTERVAL_SEC){
+    s.lastJabSec = s.focusedSec; // bump first to avoid double-trigger
+    saveFocusSession();
+    const taskTitle = s.taskName || state.focusTaskName || "未命名任務";
+    fetchFocusJab(`30分鐘檢查：${taskTitle}`);
+  }
+
+  // original timer logic
   if(!Number.isFinite(s.endsAtMs) || s.endsAtMs === null){
     s.endsAtMs = nowMs() + (Number(s.timeLeftSec ?? s.totalTimeSec) * 1000);
   }
@@ -1999,6 +1936,11 @@ function toggleFocus(){
     s.timeLeftSec = state.totalTime;
     s.endsAtMs = nowMs() + (s.timeLeftSec * 1000);
 
+    // NEW focus counters
+    s.focusedSec = 0;
+    s.lastJabSec = 0;
+    s.lastTickMs = nowMs();
+
     disarmAway();
     saveFocusSession();
     syncUIFromSession();
@@ -2010,12 +1952,25 @@ function toggleFocus(){
 
   if(s.status === "running"){
     reconcileRunningClock();
+
+    // ✅ NEW: pause triggers new jab AND pause time not counted
     s.status = "paused";
     s.endsAtMs = null;
+
+    // stop accumulating focus time while paused
+    s.lastTickMs = null;
+
+    // treat pause jab as a "replace" too, so next 30-min counts after pause
+    s.lastJabSec = s.focusedSec;
+
     disarmAway();
     saveFocusSession();
     stopTimer();
     syncUIFromSession();
+
+    const taskTitle = s.taskName || state.focusTaskName || "未命名任務";
+    fetchFocusJab(`暫停任務：${taskTitle}`);
+
     render();
     return;
   }
@@ -2027,6 +1982,9 @@ function toggleFocus(){
     s.totalTimeSec = state.totalTime;
     s.timeLeftSec = Math.min(s.timeLeftSec || s.totalTimeSec, s.totalTimeSec);
     s.endsAtMs = nowMs() + (s.timeLeftSec * 1000);
+
+    // resume accumulation
+    s.lastTickMs = nowMs();
 
     s.status = "running";
     disarmAway();
@@ -2095,6 +2053,11 @@ function recordPomodoroSuccess(){
   s.startedAtISO = null;
   s.timeLeftSec = s.totalTimeSec;
 
+  // reset focus counters
+  s.focusedSec = 0;
+  s.lastJabSec = 0;
+  s.lastTickMs = null;
+
   saveFocusSession();
   persistAll();
   syncUIFromSession();
@@ -2108,7 +2071,7 @@ function recordPomodoroFail(reason, { auto=false } = {}){
   if(!s) return;
 
   if(s.status === "idle"){
-    data.focusMsg = enforceShortJab(`**未開始不算失敗**`, 25);
+    data.focusMsg = `**未開始不計失敗。** 直接按「開始」。`;
     persistAll();
     render();
     return;
@@ -2137,6 +2100,11 @@ function recordPomodoroFail(reason, { auto=false } = {}){
   s.startedAtISO = null;
   s.timeLeftSec = s.totalTimeSec;
 
+  // reset focus counters
+  s.focusedSec = 0;
+  s.lastJabSec = 0;
+  s.lastTickMs = null;
+
   disarmAway();
   saveFocusSession();
   persistAll();
@@ -2159,7 +2127,7 @@ function abandonTask(){
 /** ========= Export/Import/Reset ========= */
 function exportData(){
   const payload = {
-    version: 5,
+    version: 6,
     exportedAt: new Date().toISOString(),
     data: {
       longGoals: data.longGoals,
@@ -2399,6 +2367,12 @@ btnDeleteTask.onclick = ()=>{
   applyTheme();
 
   state.focusSession = loadFocusSession();
+
+  // ensure new fields exist for old sessions
+  if(typeof state.focusSession.focusedSec !== "number") state.focusSession.focusedSec = 0;
+  if(typeof state.focusSession.lastJabSec !== "number") state.focusSession.lastJabSec = 0;
+  if(typeof state.focusSession.lastTickMs !== "number") state.focusSession.lastTickMs = null;
+
   syncUIFromSession();
 
   state.totalTime = state.focusSession?.totalTimeSec ?? 1500;
